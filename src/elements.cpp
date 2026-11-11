@@ -258,13 +258,13 @@ RLBlock::RLBlock(const Matrix& R, const Matrix& L)
 }
 
 void RLBlock::stamp(Matrix& g, const std::vector<int>& from, const std::vector<int>& to) const {
-    const Matrix& A = gain();
+    const Matrix& y = gain();
     for (std::size_t i = 0; i < n; ++i)
         for (std::size_t j = 0; j < n; ++j) {
-            g(from[i], from[j]) += A(i, j);
-            g(to[i], to[j]) += A(i, j);
-            g(from[i], to[j]) -= A(i, j);
-            g(to[i], from[j]) -= A(i, j);
+            g(from[i], from[j]) += y(i, j);
+            g(to[i], to[j]) += y(i, j);
+            g(from[i], to[j]) -= y(i, j);
+            g(to[i], from[j]) -= y(i, j);
         }
 }
 

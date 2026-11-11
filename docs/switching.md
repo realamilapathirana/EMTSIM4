@@ -5,8 +5,8 @@ does not respect that grid, which causes two separate problems. Both are describ
 Arrillaga, *Power Systems Electromagnetic Transients Simulation*, section 9.4; this page says
 what EMTSim does about them and where the code is.
 
-Interpolation is on or off (`interp=on|off`). Chatter removal has four settings, described below:
-`chatter=off | cda | detect | rootmatch`, default `cda` (`on` means `cda`). A circuit chooses with
+Interpolation is on or off (`interp=on|off`). Chatter removal has five settings, described below:
+`chatter=off | cda | detect | rootmatch | pscad`, default `cda` (`on` means `cda`). A circuit chooses with
 an `.options` line before its elements, a run with `--chatter=... --interp=...` on the command line
 (`run.bat`, `emtsim.exe`, `python main.py`, `compare.py`), and the editor has both under Run
 settings. Try them on the five `circuits/demo_*.net` circuits.
@@ -105,7 +105,8 @@ fires 3 times there, at start-up, and leaves the ringing alone.
 A different idea (Watson & Arrillaga chapter 5): instead of repairing the trapezoidal rule after the
 fact, give series R–L branches a difference equation that cannot chatter. Everything else (separate
 `L` and `C` elements, cores, lines) keeps the trapezoidal rule and is protected as with `detect`:
-the two half steps after every switching and wherever chatter is detected, as PSCAD does. The exact solution of
+the two half steps after every switching and wherever chatter is detected (where PSCAD acts too,
+though PSCAD removes the chatter by interpolation instead, see below). The exact solution of
 L di/dt + R i = v, with v held at its new value over the step, is
 
   *i*(*t*) = e^(−RΔt/L) *i*(*t*−Δt) + (1 − e^(−RΔt/L)) / *R* · *v*(*t*)
@@ -133,6 +134,63 @@ The price: holding v over the step delays a sinusoid by about half a step. At 50
 trapezoidal rule). So root matching is the better choice for switching and step studies with a
 large time step, and the trapezoidal rule (with CDA) for steady-state accuracy.
 
+### Method: PSCAD's half-step interpolation (`chatter=pscad`)
+
+PSCAD/EMTDC does not use CDA (that is NETOMAC's and MicroTran's method). It keeps the trapezoidal
+rule everywhere and removes chatter by **interpolation** (Watson & Arrillaga section 9.4.1, figures
+9.7, 9.11 and 9.12). Chatter is a symmetrical oscillation around the true solution, so halfway
+between a point and the next one the oscillation cancels. After a switching at *t*z:
+
+1. interpolate back to *t*z and switch there (as for `interp=on`): the state just before, *t*z−;
+2. solve *G* v = i again at *t*z with the new *G* and the history currents unchanged: the solution
+   just after the switching, *t*z+ (PSCAD V3.07's "instantaneous solution", a step of length 0);
+3. a trapezoidal step from *t*z+ to *t*z + Δt;
+4. interpolate half a step back, to *t*z + Δt/2: the chatter is gone;
+5. the next trapezoidal step, interpolated back onto the output grid.
+
+```
+ ──┼──────────┼─────────────┼──────────────┼──
+  t          tz   tz+Δt/2  tz+Δt      tz+3Δt/2
+             ●━━━━━━━━━━━━━━━●                  3. step from tz+ (solved again at tz with the new G)
+                    ◄────────┘                  4. back half a step: halfway, the chatter cancels
+                    ●━━━━━━━━━━━━━━━━━━━━━━━●    5. normal step, then onto the grid
+```
+
+Like PSCAD, `pscad` also looks for chatter at every regular step (the same check as `detect`)
+and, where it finds some, takes a step and interpolates half a step back (no step 2 there, since
+nothing switched). *G* never changes for the chatter removal itself.
+
+Step 2 matters. Without it, step 4 interpolates between the state *before* the switching and one
+after it, which also halves discontinuous quantities: when `machines.net`'s fault clears, the
+fault branch would carry half its 12.5 kA at the midpoint, and the system voltages after it were
+off by kilovolts.
+
+Its limit, which the book states: at *t*z+ the history currents are held, not the inductor currents
+and capacitor voltages (holding those would need another *G*). So in step 2 an inductor's current
+moves by Δt/2L · (v(*t*z−) + v(*t*z+)) in no time. For a current chopped to zero, v(*t*z+) ≈
+−v(*t*z−) and the move vanishes; for a switch closing on an R–L branch it does not (0.44 A of
+10 A, as large as with no chatter removal, against 0.03 A with CDA), and a rectifier, with its
+many valve switchings, adds the moves up. The cancellation in step 4 is also exact only for a
+perfectly symmetrical chatter: in the diode-fed R–L load of the book's figure 9.4, the 1 MΩ
+off-resistance leaves a 0.3 V residue of the 100 V chatter, below the detection threshold.
+
+Measured against a run with a 10 times smaller time step (largest error over the run, all node
+voltages and branch currents):
+
+| Circuit | `cda` | `pscad` |
+|---|---|---|
+| `demo_chatter.net` (switch opening) | 0.43 V, 0.43 A | 0.43 V, 0.43 A |
+| `demo_interpolation.net` (switch closing between points) | 10 V, 1.6 A | 0.09 V, 0.09 A |
+| `transformer_inrush.net` | 11.7 kV | 4.8 kV |
+| `grid100.net` | 1083 V, 78.5 A | 955 V, 69.7 A |
+| `machines.net` (fault cleared at a set time) | 4.2 kV, 45 A | 4.2 kV, 141 A |
+| `example8.net` | 83 V, 7.1 A | 108 V, 15.8 A |
+| `line_energisation.net` | 5.9 kV, 0.31 A | 5.9 kV, 11.3 A |
+| `rectifier.net` (12 valves) | 25 V, 1.2 A | 360 V, 278 A |
+
+So `pscad` is the method to compare EMTSim with PSCAD, and it does well where chatter follows a
+current being chopped. CDA remains the better default, especially for converters.
+
 ### Choosing
 
 | Method | Removes chatter | Cost | Use when |
@@ -141,6 +199,7 @@ large time step, and the trapezoidal rule (with CDA) for steady-state accuracy.
 | `cda` (default) | after switchings | two half steps per switching | most studies |
 | `detect` | after switchings, and wherever it appears | a check of the state every step | non-linear cores, stiff sources, anything that chatters on its own |
 | `rootmatch` | in R–L branches, always; elsewhere as `detect` | as `detect`, two more factorisations of *G* per switching, a ½-step lag on sinusoids in R–L branches | switching transients with a large time step, circuits built from R–L branches |
+| `pscad` | after switchings, and wherever it appears, by interpolation | a re-solve and a check of the state; inductor currents move at each switching | comparing with PSCAD; chopped currents |
 
 ## Where the code is, and how to change it
 
@@ -149,20 +208,23 @@ large time step, and the trapezoidal rule (with CDA) for steady-state accuracy.
 | The time loop with both methods | `switching.py` → `run_with_events()` | `src/switching.cpp` → `runWithEvents()` |
 | **Interpolation method** (state between two solution points) | `switching.py` → `interpolate(x, y, al)` | `src/switching.cpp` → `interpolateState()` |
 | **Chatter removal method** (steps taken after a switching) | `switching.py` → `steps_after_switching()` | `src/switching.cpp` → `stepsAfterSwitching()` |
-| **Chatter detection** (`chatter=detect`, `rootmatch`) | `switching.py` → `chatter_detected(states, peak)` | `src/switching.cpp` → `chatterDetected()` |
+| Steps taken where chatter is detected | `switching.py` → `steps_where_detected()` | `src/switching.cpp` → `stepsWhereDetected()` |
+| **Chatter detection** (`chatter=detect`, `rootmatch`, `pscad`) | `switching.py` → `chatter_detected(states, peak)` | `src/switching.cpp` → `chatterDetected()` |
 | **Root matching** (`chatter=rootmatch`) | `elements.py` → `root_match()`, used by `RLBlock`, `TransformerCore` (`coefficients()` picks Δt or Δt/2) | `src/elements.cpp` → `rootMatch()`, `expm()` in `src/linalg.cpp`; `gain()` in `src/elements.h` |
 | Where each element switches within a step | `elements.py` → `event_alpha()` of `Switch`, `Diode` | `src/elements.cpp` → `eventAlpha()` |
 | Backward-Euler history currents | `elements.py`, where `config.euler` is read | `src/elements.cpp`, where `config::euler` is read |
 | Saving / loading / one step / earliest event | `emtcls.py` → `save`, `load`, `solve_step`, `detect` | `src/network.cpp` → `save`, `load`, `solveStep`, `detect` |
 | Plain loop (both off) | `main.py` | `src/main.cpp` |
 
-To try another chatter-removal scheme, change `steps_after_switching()`: it returns the steps to
-take after a switching as `(fraction of Δt, backward Euler?)`. `[(0.5, True), (0.5, True)]` is
-CDA; `[]` is none; four half steps, or a half step followed by a trapezoidal step, are other
-valid lists. The loop itself accepts any list and interpolates back onto the output grid
-whatever the steps are, **but the elements only know two kinds of step**: the trapezoidal step
-of Δt, `(1.0, False)`, and the backward-Euler half step of Δt/2, `(0.5, True)` — the two whose
-conductances are equal, so *G* needs no rebuild (except for root-matched branches, which have
+To try another chatter-removal scheme, change `steps_after_switching()` (and
+`steps_where_detected()`): it returns the steps to take after a switching as `(fraction of Δt,
+backward Euler?, fraction of Δt to interpolate back afterwards)`. `[(0.5, True, 0), (0.5, True, 0)]`
+is CDA; `[(0, False, 0), (1, False, 0.5)]` is PSCAD's re-solve, step and half-step interpolation;
+`[]` is none; four half steps, or a half step followed by a trapezoidal step, are other valid
+lists. The loop itself accepts any list and interpolates back onto the output grid whatever the
+steps are, **but the elements only know three kinds of step**: the trapezoidal step of Δt,
+`(1.0, False)`, the backward-Euler half step of Δt/2, `(0.5, True)`, and the re-solve at the same
+instant, `(0.0, False)` — all with the same conductances, so *G* needs no rebuild (except for root-matched branches, which have
 their own Δt/2 model; the loop refactorises *G* for them). Any other length or rule needs matching
 changes to the elements' `stamp()` and history currents (a full backward-Euler step `(1.0, True)`
 with the present elements integrates as if it were a half step and does not remove the chatter).

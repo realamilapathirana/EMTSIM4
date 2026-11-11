@@ -24,7 +24,7 @@ parameters can be given as key=value.
     IM  a b c  S V f poles rs xls rr xlr xm H Tload [speed0=]   induction machine
     .tran dt tstop                                   time step and stop time (before the elements)
     RL  a b  R L                                     series R-L branch (chatter=rootmatch root-matches it)
-    .options chatter=off|cda|detect|rootmatch interp=on|off   chatter removal method / switching interpolation
+    .options chatter=off|cda|detect|rootmatch|pscad interp=on|off   chatter removal method / switching interpolation
                                                      (default cda, on; before the elements; docs/switching.md)
 """
 import math
@@ -250,7 +250,7 @@ def parse_on_off(value):
 
 
 def parse_chatter(value):
-    """off / cda / detect / rootmatch (on = cda), or None"""
+    """off / cda / detect / rootmatch / pscad (on = cda), or None"""
     v = value.lower()
     on = parse_on_off(v)
     if on is not None:
@@ -292,7 +292,7 @@ def parse(text, where="netlist"):
                 key = key.lower()
                 v = parse_chatter(val) if key == "chatter" else parse_on_off(val) if key == "interp" else None
                 if v is None:
-                    raise ValueError("%s: use .options chatter=off|cda|detect|rootmatch interp=on|off" % loc)
+                    raise ValueError("%s: use .options chatter=off|cda|detect|rootmatch|pscad interp=on|off" % loc)
                 if key not in config.forced:
                     setattr(config, key, v)
             continue

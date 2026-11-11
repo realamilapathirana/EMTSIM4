@@ -1,5 +1,6 @@
 """Switching interpolation and chatter removal: the time loop used when either is on, and the two
-pieces of the method that are meant to be changed (interpolate, steps_after_switching).
+pieces of the method that are meant to be changed (interpolate, steps_after_switching,
+steps_where_detected, chatter_detected).
 See docs/switching.md. The same algorithm as src/switching.cpp."""
 import math
 
@@ -15,9 +16,21 @@ def interpolate(x, y, al):
 
 def steps_after_switching():
     """Chatter removal: the steps to take right after a switching, each (fraction of Dt, backward
-    Euler?). Critical damping adjustment is two backward-Euler half steps. The elements support
-    exactly (1.0, False) and (0.5, True), the two steps with equal conductances; see docs/switching.md."""
-    return [(0.5, True), (0.5, True)] if config.cda() else []
+    Euler?, fraction of Dt to interpolate back afterwards). Critical damping adjustment is two
+    backward-Euler half steps. PSCAD's method first solves again at the switching instant with the new
+    G (a step of length 0: the solution just after the switching), then takes a trapezoidal step and
+    interpolates half a step back. The elements support exactly the steps (1.0, False), (0.5, True)
+    and (0.0, False); see docs/switching.md."""
+    if config.chatter == "pscad":
+        return [(0.0, False, 0.0), (1.0, False, 0.5)]
+    return [(0.5, True, 0.0), (0.5, True, 0.0)] if config.removal() else []
+
+
+def steps_where_detected():
+    """Chatter removal where chatter is detected (no switching, so nothing to solve again)"""
+    if config.chatter == "pscad":
+        return [(1.0, False, 0.5)]
+    return steps_after_switching()
 
 
 def chatter_detected(states, peak):
@@ -79,11 +92,11 @@ def run_with_events(net, max_iterations=50):
         recent = (recent + [S])[-4:]
         peak = np.maximum(peak, abs(S))
         if len(recent) == 4 and chatter_detected(recent, peak):
-            pending, recent = list(steps_after_switching()), []
+            pending, recent = list(steps_where_detected()), []
 
     while k_rec < nsteps:
         special = bool(pending)
-        fraction, euler = pending[0] if special else (1.0, False)
+        fraction, euler, back = pending[0] if special else (1.0, False, 0.0)
         h = fraction*dt
         b = a + h
         config.step, config.euler = h, euler
@@ -94,13 +107,17 @@ def run_with_events(net, max_iterations=50):
             obj.begin_step(a, b)
         fallback = stall > 20     # valves switching back and forth at one instant: let check() settle them
         net.solve_step(b, valves=True if fallback else "on" if special else False, max_iterations=max_iterations)
-        best, hits = (None, []) if fallback else net.detect(a, h, config.interp)
+        best, hits = (None, []) if fallback or h == 0.0 else net.detect(a, h, config.interp)   # h = 0: nothing to find
         if fallback:
             stall = 0
         S = net.save()
         if best is None:
             if special:
                 pending.pop(0)
+                if back:           # interpolate back (pscad: to the middle of the step)
+                    S = interpolate(P, S, 1.0 - back/fraction)
+                    net.load(S)
+                    b -= back*dt
                 if pending:        # recorded after the last special step
                     P, tP, a = S, b, b
                 else:

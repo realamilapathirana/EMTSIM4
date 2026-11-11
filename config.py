@@ -1,6 +1,6 @@
 # Simulation settings. The defaults can be changed per circuit with netlist lines
 #     .tran dt tstop
-#     .options chatter=off|cda|detect|rootmatch interp=on|off
+#     .options chatter=off|cda|detect|rootmatch|pscad interp=on|off
 # which netlist.py applies before it builds the elements (their companion models
 # depend on the time step).
 #
@@ -9,6 +9,8 @@
 #          cda       two backward-Euler half steps after every switching (on = cda)
 #          detect    cda, and also wherever an oscillation from step to step is detected
 #          rootmatch detect, and series R-L branches use the exponential (root-matching) model
+#          pscad     PSCAD/EMTDC's method: after every switching and wherever chatter is detected,
+#                    a trapezoidal step and an interpolation half a step back
 # interp:  interpolate to the exact instant of switching (switch times between time
 #          points, breaker current zeros, diode/thyristor turn-on and turn-off)
 # With both off, the solver is the plain trapezoidal-rule method.
@@ -24,7 +26,7 @@ stpTime=srtTime+defaultStop
 step=Dt
 euler=False
 
-CHATTER_METHODS = ("off", "cda", "detect", "rootmatch")
+CHATTER_METHODS = ("off", "cda", "detect", "rootmatch", "pscad")
 defaultChatter="cda"
 defaultInterp=True
 chatter=defaultChatter
@@ -32,11 +34,11 @@ interp=defaultInterp
 forced = {}     # set by the command line: wins over the netlist's .options (keys chatter, interp)
 
 
-def cda():
-    """True if the time loop takes backward-Euler half steps after a switching"""
+def removal():
+    """True if the time loop removes chatter after a switching"""
     return chatter != "off"
 
 
 def detect():
-    """True if the half steps are also taken wherever chatter is detected"""
-    return chatter in ("detect", "rootmatch")
+    """True if chatter is also removed wherever it is detected"""
+    return chatter in ("detect", "rootmatch", "pscad")

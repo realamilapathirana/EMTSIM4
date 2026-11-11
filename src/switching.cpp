@@ -14,8 +14,14 @@ void interpolateState(const Vector& x, const Vector& y, double al, Vector& out) 
 }
 
 std::vector<Step> stepsAfterSwitching() {
-    if (!config::cda()) return {};
+    if (config::chatter == config::Chatter::Pscad) return {{0.0, false, 0.0}, {1.0, false, 0.5}};
+    if (!config::removal()) return {};
     return {{0.5, true}, {0.5, true}};
+}
+
+std::vector<Step> stepsWhereDetected() {
+    if (config::chatter == config::Chatter::Pscad) return {{1.0, false, 0.5}};
+    return stepsAfterSwitching();
 }
 
 bool chatterDetected(const std::vector<Vector>& states, const Vector& peak) {
@@ -75,7 +81,7 @@ void runWithEvents(Network& net, int maxIterations) {
         if (recent.size() > 4) recent.erase(recent.begin());
         for (std::size_t i = 0; i < P.size(); ++i) peak[i] = std::max(peak[i], std::fabs(P[i]));
         if (recent.size() == 4 && chatterDetected(recent, peak)) {
-            const std::vector<Step> after = stepsAfterSwitching();
+            const std::vector<Step> after = stepsWhereDetected();
             pending.assign(after.begin(), after.end());
             recent.clear();
         }
@@ -84,7 +90,8 @@ void runWithEvents(Network& net, int maxIterations) {
     while (kRec < nsteps) {
         const bool special = !pending.empty();
         const Step step = special ? pending.front() : Step{1.0, false};
-        const double h = step.fraction * dt, b = a + h;
+        const double h = step.fraction * dt;
+        double b = a + h;
         config::step = h;
         config::euler = step.euler;
         if (root && step.euler != gEuler) {
@@ -94,12 +101,17 @@ void runWithEvents(Network& net, int maxIterations) {
         for (Element* e : net.events()) e->beginStep(a, b);
         const bool fallback = stall > 20;   // valves switching back and forth at one instant: let check() settle them
         net.solveStep(b, fallback ? Network::AllValves : special ? Network::TurnOnOnly : Network::NoValves, maxIterations);
-        const double best = fallback ? -1.0 : net.detect(a, h, config::interp, hits);
+        const double best = fallback || h == 0.0 ? -1.0 : net.detect(a, h, config::interp, hits);   // h = 0: nothing to find
         if (fallback) stall = 0;
         S = net.save();
         if (best < 0.0) {
             if (special) {
                 pending.pop_front();
+                if (step.back > 0.0) {   // interpolate back (pscad: to the middle of the step)
+                    S.swap(lerp(P, S, 1.0 - step.back / step.fraction));
+                    net.load(S);
+                    b -= step.back * dt;
+                }
                 if (!pending.empty()) { std::swap(P, S); tP = a = b; }   // recorded after the last special step
                 else accept(b);
                 continue;

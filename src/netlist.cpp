@@ -317,7 +317,7 @@ Circuit parseNetlist(const std::string& text, const std::string& where) {
                 const std::size_t eq = tok[k].find('=');
                 const std::string key = lower(tok[k].substr(0, eq)), val = eq == std::string::npos ? "" : tok[k].substr(eq + 1);
                 const int v = key == "chatter" ? parseChatter(val) : key == "interp" ? parseOnOff(val) : -1;
-                if (v < 0) throw std::runtime_error(s.where + ": use .options chatter=off|cda|detect|rootmatch interp=on|off");
+                if (v < 0) throw std::runtime_error(s.where + ": use .options chatter=off|cda|detect|rootmatch|pscad interp=on|off");
                 if (key == "chatter" && config::forcedChatter < 0) config::chatter = static_cast<config::Chatter>(v);
                 if (key == "interp" && config::forcedInterp < 0) config::interp = v != 0;
             }
@@ -392,5 +392,6 @@ int parseChatter(const std::string& value) {
     if (v == "cda") return static_cast<int>(config::Chatter::CDA);
     if (v == "detect") return static_cast<int>(config::Chatter::Detect);
     if (v == "rootmatch") return static_cast<int>(config::Chatter::RootMatch);
+    if (v == "pscad") return static_cast<int>(config::Chatter::Pscad);
     return -1;
 }

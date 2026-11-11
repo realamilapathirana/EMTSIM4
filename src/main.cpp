@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
             if (v >= 0)
                 (key == "--chatter" ? config::forcedChatter : config::forcedInterp) = v;
             else if (!arg.empty() && arg[0] == '-')
-                throw std::runtime_error("usage: emtsim [netlist.net] [--chatter=off|cda|detect|rootmatch] [--interp=on|off]");
+                throw std::runtime_error("usage: emtsim [netlist.net] [--chatter=off|cda|detect|rootmatch|pscad] [--interp=on|off]");
             else
                 path = arg;
         }
@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         EMTDC.updateSwitches(Time);   // initial switch/fault states
         EMTDC.refactor();
 
-        if (config::cda() || config::interp) {
+        if (config::removal() || config::interp) {
             runWithEvents(EMTDC, MAX_ITERATIONS);
         } else {
             // plain trapezoidal loop; half a step of tolerance because Time accumulates round-off

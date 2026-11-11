@@ -11,7 +11,7 @@ MAX_ITERATIONS = 50
 
 
 def run(netlist_path=None, chatter=None, interp=None):
-    """chatter: off / cda / detect / rootmatch (True = cda, False = off); interp: True or False.
+    """chatter: off / cda / detect / rootmatch / pscad (True = cda, False = off); interp: True or False.
     Both override the netlist's .options line (None: keep it)."""
     print("\nStart running the simulation..... \n")
     Time=config.srtTime
@@ -30,7 +30,7 @@ def run(netlist_path=None, chatter=None, interp=None):
     EMTDC.updateSwitches(Time)      # initial switch/fault states
     EMTDC.refactor()
 
-    if config.cda() or config.interp:
+    if config.removal() or config.interp:
         run_with_events(EMTDC, MAX_ITERATIONS)
     else:
         # plain trapezoidal loop; half a step of tolerance because Time accumulates round-off
@@ -63,7 +63,7 @@ if __name__ == "__main__":
         if v is not None:
             opts[key[2:]] = v
         elif arg.startswith("-"):
-            raise SystemExit("usage: python main.py [netlist.net] [--chatter=off|cda|detect|rootmatch] [--interp=on|off]")
+            raise SystemExit("usage: python main.py [netlist.net] [--chatter=off|cda|detect|rootmatch|pscad] [--interp=on|off]")
         else:
             path = arg
     run(path, **opts)

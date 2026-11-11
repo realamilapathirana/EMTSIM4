@@ -629,8 +629,9 @@ function renderProps() {
          '<div class="field"><label><input type="checkbox" data-opt="interp"' + (st.interp === 'off' ? '' : ' checked') +
          '> Switch at the exact instant (interpolation)</label></div>' +
          '<div class="field"><label>Chatter removal <select data-optsel="chatter">' +
-         [['cda', 'after a switching (CDA)'], ['detect', 'after a switching, and wherever detected'],
-          ['rootmatch', 'root matching of R-L branches, with detection'], ['off', 'off']]
+         [['cda', 'CDA after a switching'], ['detect', 'CDA after a switching and wherever detected'],
+          ['rootmatch', 'as above, plus root matching of R-L branches'],
+          ['pscad', 'PSCAD: half-step interpolation, with detection'], ['off', 'off']]
            .map(([k, t]) => '<option value="' + k + '"' + ((st.chatter || 'cda') === k ? ' selected' : '') + '>' + t + '</option>').join('') +
          '</select></label></div>';
     if (net) h += msgList(net);

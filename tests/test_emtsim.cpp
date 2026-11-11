@@ -377,7 +377,7 @@ void newElementTests() {
 std::unique_ptr<Network> runMain(const std::string& text) {
     Circuit ckt = parseNetlist(text, "test");   // sets config from .tran / .options
     const int steps = static_cast<int>(std::lround((config::stpTime - config::srtTime) / config::Dt));
-    if (!(config::cda() || config::interp)) return runNetwork(std::move(ckt), steps);
+    if (!(config::removal() || config::interp)) return runNetwork(std::move(ckt), steps);
     std::ostringstream sink;
     auto* old = std::cout.rdbuf(sink.rdbuf());
     auto net = std::make_unique<Network>(std::move(ckt.elements), ckt.userNodes);
@@ -489,6 +489,30 @@ void chatterTests() {
         const auto rd = runMain(".options chatter=rootmatch\n.tran 0.0001 0.003\nV 0 1 10 0 0\nR 1 2 0.01\nC 2 0 100e-6 # C\n");
         check(peakAbs(currentTrace(*rd, "C"), 5) < 0.05, "root matching with detection: capacitor chatter caught (A after)",
               peakAbs(currentTrace(*rd, "C"), 5));
+    }
+    // PSCAD's method: solve again at the switching instant, a step, and an interpolation half a step back
+    {
+        const std::string pscad = ".options chatter=pscad\n";
+        const auto o = runMain(pscad + rlOpen);
+        check(peakAbs(nodeTrace(*o, 3), 30) < 1e-3, "pscad: no chatter, and no spike, after opening the switch (V)",
+              peakAbs(nodeTrace(*o, 3), 30));
+        const auto d = runMain(pscad + dRL);
+        const auto id = currentTrace(*d, "D"), vd = nodeTrace(*d, 3);
+        std::size_t k = 1;
+        while (k < id.size() && !(id[k - 1] > 1e-6 && id[k] <= 1e-6)) ++k;
+        // the interpolation leaves a residue: the 1 MOhm off-resistance makes the chatter slightly asymmetric
+        check(k < id.size() && peakAbs(vd, k + 3, k + 40) < 0.5, "pscad: diode-fed RL, ~100 V chatter at turn-off cut to a residue (V)",
+              peakAbs(vd, k + 3, k + 40));
+        const auto fc = runMain(pscad + ".tran 0.00005 0.03\nV 0 1 10 0 0\nSW 1 2 closed 0.020025\nD 0 2\nR 2 3 1\nL 3 0 0.1 # L\n");
+        check(peakAbs(nodeTrace(*fc, 2), 401) < 0.05, "pscad: no spike when the free-wheeling diode takes over (V)",
+              peakAbs(nodeTrace(*fc, 2), 401));
+        const auto b = runMain(pscad + ".tran 0.00005 0.06\nV 0 1 100 0 50\nSW 1 2 closed 0.0201 czero # BRK\nR 2 3 1\nL 3 0 0.01\n");
+        const std::size_t kb = static_cast<std::size_t>(std::lround(0.0201 / 0.00005));
+        check(peakAbs(currentTrace(*b, "BRK"), kb + 300) < 1e-3 && peakAbs(nodeTrace(*b, 3), kb + 300) < 0.01,
+              "pscad: breaker opens at a current zero, no chatter after (V)", peakAbs(nodeTrace(*b, 3), kb + 300));
+        const auto c = runMain(pscad + ".tran 0.0001 0.003\nV 0 1 10 0 0\nR 1 2 0.01\nC 2 0 100e-6 # C\n");
+        check(peakAbs(currentTrace(*c, "C"), 5) < 0.05, "pscad: chatter detected and removed, capacitor (A after)",
+              peakAbs(currentTrace(*c, "C"), 5));
     }
     config::chatter = config::defaultChatter;
     config::interp = config::defaultInterp;

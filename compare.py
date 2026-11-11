@@ -78,7 +78,7 @@ def main():
     ap.add_argument("--repeat", type=int, default=3, help="runs per version; the fastest is reported (default 3)")
     ap.add_argument("--plot", action="store_true", help="plot both versions and their difference")
     ap.add_argument("--save", help="save the plot to this file instead of showing it")
-    ap.add_argument("--chatter", choices=("off", "cda", "detect", "rootmatch"), help="override the chatter removal method")
+    ap.add_argument("--chatter", choices=("off", "cda", "detect", "rootmatch", "pscad"), help="override the chatter removal method")
     ap.add_argument("--interp", choices=("on", "off"), help="override switching interpolation")
     args = ap.parse_args()
 
