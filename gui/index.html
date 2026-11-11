@@ -630,7 +630,7 @@ function renderProps() {
          '> Switch at the exact instant (interpolation)</label></div>' +
          '<div class="field"><label>Chatter removal <select data-optsel="chatter">' +
          [['cda', 'after a switching (CDA)'], ['detect', 'after a switching, and wherever detected'],
-          ['rootmatch', 'root matching of R-L branches'], ['off', 'off']]
+          ['rootmatch', 'root matching of R-L branches, with detection'], ['off', 'off']]
            .map(([k, t]) => '<option value="' + k + '"' + ((st.chatter || 'cda') === k ? ' selected' : '') + '>' + t + '</option>').join('') +
          '</select></label></div>';
     if (net) h += msgList(net);

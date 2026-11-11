@@ -476,6 +476,19 @@ void chatterTests() {
         double err = 0.0;
         for (std::size_t k = 0; k < 29; ++k) err = std::max(err, std::fabs(irm[k] - 10.0 * (1.0 - std::exp(-rm->time()[k] / 1e-3))));
         check(err < 0.1, "root matching: step response close to exact (A)", err);
+        // with CDA: a switch closing between time points, the half steps use the Dt/2 root match
+        const auto cl = runMain(".options chatter=rootmatch\n.tran 0.0001 0.004\nV 0 1 10 0 0\nSW 1 2 open 0.00105\nRL 2 0 1 0.001 # LOAD\n");
+        const auto icl = currentTrace(*cl, "LOAD");
+        err = 0.0;
+        for (std::size_t k = 0; k < icl.size(); ++k) {
+            const double t = cl->time()[k], ex = t > 0.00105 ? 10.0 / 1.01 * (1.0 - std::exp(-(t - 0.00105) * 1.01 / 1e-3)) : 0.0;
+            err = std::max(err, std::fabs(icl[k] - ex));
+        }
+        check(err < 0.02, "root matching with CDA: switch closing between time points, step response (A)", err);
+        // with detection: the stiff-source capacitor of the detection test is caught too
+        const auto rd = runMain(".options chatter=rootmatch\n.tran 0.0001 0.003\nV 0 1 10 0 0\nR 1 2 0.01\nC 2 0 100e-6 # C\n");
+        check(peakAbs(currentTrace(*rd, "C"), 5) < 0.05, "root matching with detection: capacitor chatter caught (A after)",
+              peakAbs(currentTrace(*rd, "C"), 5));
     }
     config::chatter = config::defaultChatter;
     config::interp = config::defaultInterp;

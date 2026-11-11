@@ -34,6 +34,7 @@
 #include <string>
 #include <vector>
 
+#include "config.h"
 #include "linalg.h"
 
 class Element {
@@ -180,8 +181,10 @@ struct RLBlock {
     RLBlock(const Matrix& R, const Matrix& L);
     std::size_t n = 0;
     Matrix A, B, L2;                  // A = (R + 2L/dt)^-1,  B = 2L/dt - R,  L2 = 2L/dt
-    Matrix Phi;                       // chatter=rootmatch: i = A v + Phi i_prev (A = Gamma), see rootMatch
+    Matrix Phi[2], Gamma[2];          // chatter=rootmatch: i = Gamma v + Phi i_prev, for Dt and Dt/2 (rootMatch)
     bool root = false;
+    int half() const { return config::euler ? 1 : 0; }
+    const Matrix& gain() const { return root ? Gamma[half()] : A; }
     Vector vprev, iprev, ih;
     void stamp(Matrix& g, const std::vector<int>& from, const std::vector<int>& to) const;
     void history(Vector& h, const std::vector<int>& from, const std::vector<int>& to);
@@ -287,8 +290,9 @@ public:
 private:
     double a_[4];
     double n_, A_, B_, L2_;           // A = 1/(R + 2L/dt),  B = 2L/dt - R,  L2 = 2L/dt
-    double phi_ = 0.0;                // chatter=rootmatch: i = A vb + phi i_prev
+    double phi_[2] = {0.0, 0.0}, gamma_[2] = {0.0, 0.0};   // chatter=rootmatch: i = gamma vb + phi i_prev, Dt and Dt/2
     bool root_ = false;
+    double gain() const { return root_ ? gamma_[config::euler ? 1 : 0] : A_; }
     double vprev_ = 0.0, i_ = 0.0, ih_ = 0.0;
 };
 

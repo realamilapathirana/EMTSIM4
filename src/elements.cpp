@@ -253,14 +253,12 @@ bool rootMatch(const Matrix& R, const Matrix& L, double dt, Matrix& Phi, Matrix&
 RLBlock::RLBlock(const Matrix& R, const Matrix& L)
     : n(R.rows()), A(inverse(R + (2.0 / config::Dt) * L)), B((2.0 / config::Dt) * L + (-1.0) * R),
       L2((2.0 / config::Dt) * L), vprev(R.rows(), 0.0), iprev(R.rows(), 0.0), ih(R.rows(), 0.0) {
-    Matrix Gamma;
-    if (config::chatter == config::Chatter::RootMatch && rootMatch(R, L, config::Dt, Phi, Gamma)) {
-        A = Gamma;
-        root = true;
-    }
+    root = config::chatter == config::Chatter::RootMatch && rootMatch(R, L, config::Dt, Phi[0], Gamma[0]) &&
+           rootMatch(R, L, 0.5 * config::Dt, Phi[1], Gamma[1]);
 }
 
 void RLBlock::stamp(Matrix& g, const std::vector<int>& from, const std::vector<int>& to) const {
+    const Matrix& A = gain();
     for (std::size_t i = 0; i < n; ++i)
         for (std::size_t j = 0; j < n; ++j) {
             g(from[i], from[j]) += A(i, j);
@@ -272,7 +270,7 @@ void RLBlock::stamp(Matrix& g, const std::vector<int>& from, const std::vector<i
 
 void RLBlock::history(Vector& h, const std::vector<int>& from, const std::vector<int>& to) {
     if (root) {
-        ih = Phi * iprev;
+        ih = Phi[half()] * iprev;
     } else {
         Vector x(n);
         if (config::euler) {
@@ -296,7 +294,7 @@ Vector RLBlock::branchVoltage(const Vector& v, const std::vector<int>& from, con
 }
 
 void RLBlock::update(const Vector& vb) {
-    const Vector Av = A * vb;
+    const Vector Av = gain() * vb;
     for (std::size_t i = 0; i < n; ++i) iprev[i] = Av[i] + ih[i];
     vprev = vb;
 }
@@ -503,21 +501,24 @@ TransformerCore::TransformerCore(int p, int q, int s, int t, double n, double R,
     Matrix Rm(1, 1), Lm(1, 1), Phi, Gamma;
     Rm(0, 0) = R;
     Lm(0, 0) = L;
-    if (config::chatter == config::Chatter::RootMatch && L > 0.0 && rootMatch(Rm, Lm, config::Dt, Phi, Gamma)) {
-        phi_ = Phi(0, 0);
-        A_ = Gamma(0, 0);
+    if (config::chatter == config::Chatter::RootMatch && L > 0.0) {
         root_ = true;
+        for (int k = 0; k < 2; ++k) {
+            root_ = rootMatch(Rm, Lm, k ? 0.5 * config::Dt : config::Dt, Phi, Gamma) && root_;
+            phi_[k] = Phi(0, 0);
+            gamma_[k] = Gamma(0, 0);
+        }
     }
 }
 
 void TransformerCore::stamp(Matrix& g) const {
     for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j) g(i, j) += A_ * a_[i] * a_[j];
+        for (int j = 0; j < 4; ++j) g(i, j) += gain() * a_[i] * a_[j];
 }
 
 void TransformerCore::history(double t, Vector& h) {
     (void)t;
-    ih_ = root_ ? phi_ * i_ : config::euler ? A_ * L2_ * i_ : A_ * (vprev_ + B_ * i_);
+    ih_ = root_ ? phi_[config::euler ? 1 : 0] * i_ : config::euler ? A_ * L2_ * i_ : A_ * (vprev_ + B_ * i_);
     for (int j = 0; j < 4; ++j) h[j] += a_[j] * ih_;
 }
 
@@ -525,7 +526,7 @@ void TransformerCore::update(double t, const Vector& v) {
     (void)t;
     double vb = 0.0;
     for (int j = 0; j < 4; ++j) vb += a_[j] * v[j];
-    i_ = A_ * vb + ih_;
+    i_ = gain() * vb + ih_;
     vprev_ = vb;
 }
 

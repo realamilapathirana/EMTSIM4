@@ -8,7 +8,7 @@
 #          off       none
 #          cda       two backward-Euler half steps after every switching (on = cda)
 #          detect    cda, and also wherever an oscillation from step to step is detected
-#          rootmatch series R-L branches use the exponential (root-matching) model
+#          rootmatch detect, and series R-L branches use the exponential (root-matching) model
 # interp:  interpolate to the exact instant of switching (switch times between time
 #          points, breaker current zeros, diode/thyristor turn-on and turn-off)
 # With both off, the solver is the plain trapezoidal-rule method.
@@ -34,4 +34,9 @@ forced = {}     # set by the command line: wins over the netlist's .options (key
 
 def cda():
     """True if the time loop takes backward-Euler half steps after a switching"""
-    return chatter in ("cda", "detect")
+    return chatter != "off"
+
+
+def detect():
+    """True if the half steps are also taken wherever chatter is detected"""
+    return chatter in ("detect", "rootmatch")

@@ -59,7 +59,9 @@ void runWithEvents(Network& net, int maxIterations) {
             ++kRec;
         }
     };
-    const bool detect = config::chatter == config::Chatter::Detect;
+    const bool detect = config::detect();
+    const bool root = config::chatter == config::Chatter::RootMatch;   // root-matched branches have other conductances in the half steps
+    bool gEuler = false;             // the kind of step G was last factorised for
     std::vector<Vector> recent;      // regular solutions for chatter detection
     Vector peak(P.size());
     for (std::size_t i = 0; i < P.size(); ++i) peak[i] = std::fabs(P[i]);
@@ -85,6 +87,10 @@ void runWithEvents(Network& net, int maxIterations) {
         const double h = step.fraction * dt, b = a + h;
         config::step = h;
         config::euler = step.euler;
+        if (root && step.euler != gEuler) {
+            net.refactor();
+            gEuler = step.euler;
+        }
         for (Element* e : net.events()) e->beginStep(a, b);
         const bool fallback = stall > 20;   // valves switching back and forth at one instant: let check() settle them
         net.solveStep(b, fallback ? Network::AllValves : special ? Network::TurnOnOnly : Network::NoValves, maxIterations);
@@ -118,9 +124,10 @@ void runWithEvents(Network& net, int maxIterations) {
         bool changed = false;
         for (Element* e : hits) changed = e->applyEvent(te) || changed;
         if (changed) {
-            net.refactor();
             const std::vector<Step> after = stepsAfterSwitching();
             pending.assign(after.begin(), after.end());
+            config::euler = gEuler = !pending.empty() && pending.front().euler;
+            net.refactor();
         }
     }
     config::step = dt;

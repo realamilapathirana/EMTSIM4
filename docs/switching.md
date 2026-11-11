@@ -100,10 +100,12 @@ two backward-Euler half steps are taken there too. This is the slope check PSCAD
 `grid100.net` and the repeated half steps damped its real 1–2 kHz ringing by about 20 %; at 1 % it
 fires 3 times there, at start-up, and leaves the ringing alone.
 
-### Method: root matching (`chatter=rootmatch`)
+### Method: root matching with CDA (`chatter=rootmatch`)
 
 A different idea (Watson & Arrillaga chapter 5): instead of repairing the trapezoidal rule after the
-fact, give series R–L branches a difference equation that cannot chatter. The exact solution of
+fact, give series R–L branches a difference equation that cannot chatter. Everything else (separate
+`L` and `C` elements, cores, lines) keeps the trapezoidal rule and is protected as with `detect`:
+the two half steps after every switching and wherever chatter is detected, as PSCAD does. The exact solution of
 L di/dt + R i = v, with v held at its new value over the step, is
 
   *i*(*t*) = e^(−RΔt/L) *i*(*t*−Δt) + (1 − e^(−RΔt/L)) / *R* · *v*(*t*)
@@ -115,8 +117,16 @@ For coupled branches (R and L matrices) the same is done with a matrix exponenti
 
 Root matching applies to every series R–L branch: `RL`, `RL3`, the series branch of `PI`/`PI3`
 lines, source impedances, transformer leakage and machines. As in the book, separate `L` and `C`
-elements keep the trapezoidal rule (a lone inductance has no exponential to match), so a circuit
-drawn with a separate R and L is not helped; draw it with an `RL` branch (`demo_rootmatch.net`).
+elements keep the trapezoidal rule (a lone inductance has no exponential to match), so a separate R
+and L only get the CDA half steps; to root-match them, draw them as one `RL` branch
+(`demo_rootmatch.net`). EMTSim never merges elements by itself.
+
+During the half steps a root-matched branch uses its root match for Δt/2 (Φ and Γ computed for
+Δt/2 as well as Δt). Its conductance Γ then differs from the full-step one, unlike the trapezoidal
+elements', so with `rootmatch` *G* is refactorised when the half steps start and again when they
+end. With a switch closing between time points (interpolation on), an R–L branch's current then
+follows the exact exponential to within 0.011 A of 10 A; with Γ for Δt in the half steps it would
+be off by 0.8 A.
 
 The price: holding v over the step delays a sinusoid by about half a step. At 50 Hz and Δt =
 100 µs the current of an R–L branch is off by 1.6 % (0.49 A of 30 A, against 0.08 % with the
@@ -130,7 +140,7 @@ large time step, and the trapezoidal rule (with CDA) for steady-state accuracy.
 | `off` | no | none | studying the trapezoidal rule itself (the Tiny book) |
 | `cda` (default) | after switchings | two half steps per switching | most studies |
 | `detect` | after switchings, and wherever it appears | a check of the state every step | non-linear cores, stiff sources, anything that chatters on its own |
-| `rootmatch` | in R–L branches, always | a ½-step lag on sinusoids | switching transients with a large time step, circuits built from R–L branches |
+| `rootmatch` | in R–L branches, always; elsewhere as `detect` | as `detect`, two more factorisations of *G* per switching, a ½-step lag on sinusoids in R–L branches | switching transients with a large time step, circuits built from R–L branches |
 
 ## Where the code is, and how to change it
 
@@ -139,8 +149,8 @@ large time step, and the trapezoidal rule (with CDA) for steady-state accuracy.
 | The time loop with both methods | `switching.py` → `run_with_events()` | `src/switching.cpp` → `runWithEvents()` |
 | **Interpolation method** (state between two solution points) | `switching.py` → `interpolate(x, y, al)` | `src/switching.cpp` → `interpolateState()` |
 | **Chatter removal method** (steps taken after a switching) | `switching.py` → `steps_after_switching()` | `src/switching.cpp` → `stepsAfterSwitching()` |
-| **Chatter detection** (`chatter=detect`) | `switching.py` → `chatter_detected(states, peak)` | `src/switching.cpp` → `chatterDetected()` |
-| **Root matching** (`chatter=rootmatch`) | `elements.py` → `root_match()`, used by `RLBlock`, `TransformerCore` | `src/elements.cpp` → `rootMatch()`, `expm()` in `src/linalg.cpp` |
+| **Chatter detection** (`chatter=detect`, `rootmatch`) | `switching.py` → `chatter_detected(states, peak)` | `src/switching.cpp` → `chatterDetected()` |
+| **Root matching** (`chatter=rootmatch`) | `elements.py` → `root_match()`, used by `RLBlock`, `TransformerCore` (`coefficients()` picks Δt or Δt/2) | `src/elements.cpp` → `rootMatch()`, `expm()` in `src/linalg.cpp`; `gain()` in `src/elements.h` |
 | Where each element switches within a step | `elements.py` → `event_alpha()` of `Switch`, `Diode` | `src/elements.cpp` → `eventAlpha()` |
 | Backward-Euler history currents | `elements.py`, where `config.euler` is read | `src/elements.cpp`, where `config::euler` is read |
 | Saving / loading / one step / earliest event | `emtcls.py` → `save`, `load`, `solve_step`, `detect` | `src/network.cpp` → `save`, `load`, `solveStep`, `detect` |
@@ -152,7 +162,8 @@ CDA; `[]` is none; four half steps, or a half step followed by a trapezoidal ste
 valid lists. The loop itself accepts any list and interpolates back onto the output grid
 whatever the steps are, **but the elements only know two kinds of step**: the trapezoidal step
 of Δt, `(1.0, False)`, and the backward-Euler half step of Δt/2, `(0.5, True)` — the two whose
-conductances are equal, so *G* needs no rebuild. Any other length or rule needs matching
+conductances are equal, so *G* needs no rebuild (except for root-matched branches, which have
+their own Δt/2 model; the loop refactorises *G* for them). Any other length or rule needs matching
 changes to the elements' `stamp()` and history currents (a full backward-Euler step `(1.0, True)`
 with the present elements integrates as if it were a half step and does not remove the chatter).
 

@@ -23,7 +23,7 @@ parameters can be given as key=value.
     SM  a b c  S V f H xd2 ra E delta0 Pm [D=]       synchronous machine (classical)
     IM  a b c  S V f poles rs xls rr xlr xm H Tload [speed0=]   induction machine
     .tran dt tstop                                   time step and stop time (before the elements)
-    RL  a b  R L                                     series R-L branch (root matching can apply to it)
+    RL  a b  R L                                     series R-L branch (chatter=rootmatch root-matches it)
     .options chatter=off|cda|detect|rootmatch interp=on|off   chatter removal method / switching interpolation
                                                      (default cda, on; before the elements; docs/switching.md)
 """

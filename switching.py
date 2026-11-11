@@ -47,7 +47,9 @@ def run_with_events(net, max_iterations=50):
     S = None
     pending = []           # special steps still to take after a switching
     stall = 0
-    detect = config.chatter == "detect"
+    detect = config.detect()
+    root = config.chatter == "rootmatch"   # root-matched branches have other conductances in the half steps
+    g_euler = False        # the kind of step G was last factorised for
     recent, peak = [], abs(P)   # regular solutions for chatter detection, and the largest values seen
 
     def record_to(tS):     # the grid points up to tS, from P and S
@@ -85,6 +87,9 @@ def run_with_events(net, max_iterations=50):
         h = fraction*dt
         b = a + h
         config.step, config.euler = h, euler
+        if root and euler != g_euler:
+            net.refactor()
+            g_euler = euler
         for obj in net.events:
             obj.begin_step(a, b)
         fallback = stall > 20     # valves switching back and forth at one instant: let check() settle them
@@ -119,6 +124,7 @@ def run_with_events(net, max_iterations=50):
         for obj in hits:
             changed = obj.apply_event(te) or changed
         if changed:
-            net.refactor()
             pending = list(steps_after_switching())
+            config.euler = g_euler = bool(pending) and pending[0][1]
+            net.refactor()
     config.step, config.euler = dt, False

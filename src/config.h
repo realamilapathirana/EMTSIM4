@@ -10,7 +10,7 @@
 //          off       none
 //          cda       two backward-Euler half steps after every switching (on = cda)
 //          detect    cda, and also wherever an oscillation from step to step is detected
-//          rootmatch series R-L branches use the exponential (root-matching) model
+//          rootmatch detect, and series R-L branches use the exponential (root-matching) model
 // interp:  interpolate to the exact instant of switching (switch times between time
 //          points, breaker current zeros, diode/thyristor turn-on and turn-off)
 // With both off, the solver is the plain trapezoidal-rule method.
@@ -30,7 +30,8 @@ inline Chatter chatter = defaultChatter;           // chatter removal method
 inline bool interp = defaultInterp;                // switching interpolation
 inline int forcedChatter = -1, forcedInterp = -1;  // command line, wins over .options (-1: not given)
 
-inline bool cda() { return chatter == Chatter::CDA || chatter == Chatter::Detect; }   // half steps after switching
+inline bool cda() { return chatter != Chatter::Off; }   // half steps after switching
+inline bool detect() { return chatter == Chatter::Detect || chatter == Chatter::RootMatch; }   // and where chatter is detected
 inline const char* chatterName(Chatter c) {
     return c == Chatter::Off ? "off" : c == Chatter::CDA ? "cda" : c == Chatter::Detect ? "detect" : "rootmatch";
 }

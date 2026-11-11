@@ -325,9 +325,10 @@ voltage and so cannot chatter.
 Chatter removal and interpolation are OFF in this file. In the editor:
   1. Run, and look at V2 (and the current in LOAD).
   2. Tick "Hold run".
-  3. Under Run settings, set Chatter removal to "root matching of R-L branches"; Run.
+  3. Under Run settings, set Chatter removal to "root matching of R-L branches, with detection"; Run.
 No chatter, and the current rise before 3 ms is also closer to exact (it is exact for a step).
 Root matching applies only to R-L branches (RL, RL3, line and source impedances, transformers,
-machines); separate L and C elements keep the trapezoidal rule.
+machines); separate L and C elements keep the trapezoidal rule, with the CDA half steps after
+switchings and wherever chatter is detected (as chatter=detect).
 Command line: run.bat circuits\demo_rootmatch.net --chatter=rootmatch
 """)

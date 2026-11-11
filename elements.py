@@ -416,7 +416,7 @@ def root_match(R, L, dt):
 
 class RLBlock:
     """n coupled series branches: i = A v + A [v_prev + (2L/dt - R) i_prev],  A = (R + 2L/dt)^-1
-    (chatter=rootmatch: i = Gamma v + Phi i_prev, see root_match)"""
+    (chatter=rootmatch: i = Gamma v + Phi i_prev, see root_match; Phi_h, Gamma_h for the half steps)"""
 
     def __init__(self, R, L):
         R = np.atleast_2d(np.asarray(R, dtype=float))
@@ -425,27 +425,35 @@ class RLBlock:
         self.A = np.linalg.inv(R + (2.0/config.Dt)*L)
         self.B = (2.0/config.Dt)*L - R
         self.L2 = (2.0/config.Dt)*L
-        self.Phi = None
+        self.root = None    # rootmatch: ((Phi, Gamma) for Dt, (Phi, Gamma) for Dt/2)
         if config.chatter == "rootmatch":
             rm = root_match(R, L, config.Dt)
             if rm is not None:
-                self.Phi, self.A = rm
+                self.root = rm, root_match(R, L, 0.5*config.Dt)
         self.vprev = np.zeros(self.n)
         self.iprev = np.zeros(self.n)
         self.ih = np.zeros(self.n)
 
+    def coefficients(self):
+        """(Phi, A) of the present step; Phi is None for the trapezoidal rule"""
+        if self.root is None:
+            return None, self.A
+        return self.root[1] if config.euler else self.root[0]
+
     def stamp(self, g, frm, to):
+        A = self.coefficients()[1]
         for i in range(self.n):
             for j in range(self.n):
-                a = self.A[i, j]
+                a = A[i, j]
                 g[frm[i], frm[j]] += a
                 g[to[i], to[j]] += a
                 g[frm[i], to[j]] -= a
                 g[to[i], frm[j]] -= a
 
     def history(self, h, frm, to):
-        if self.Phi is not None:
-            self.ih = self.Phi @ self.iprev
+        Phi, A = self.coefficients()
+        if Phi is not None:
+            self.ih = Phi @ self.iprev
         elif config.euler:
             self.ih = self.A @ (self.L2 @ self.iprev)
         else:
@@ -458,7 +466,7 @@ class RLBlock:
         return np.array([v[frm[i]] - v[to[i]] for i in range(self.n)])
 
     def update(self, vb):
-        self.iprev = self.A @ vb + self.ih
+        self.iprev = self.coefficients()[1] @ vb + self.ih
         self.vprev = vb
 
 
@@ -670,20 +678,27 @@ class TransformerCore(Element):
         self.A = 1.0/(R + 2.0*L/config.Dt)
         self.B = 2.0*L/config.Dt - R
         self.L2 = 2.0*L/config.Dt
-        self.phi = None
+        self.root = None    # rootmatch: ((phi, gamma) for Dt, (phi, gamma) for Dt/2)
         if config.chatter == "rootmatch" and L > 0:
-            Phi, Gamma = root_match(np.array([[R]]), np.array([[L]]), config.Dt)
-            self.phi, self.A = Phi[0, 0], Gamma[0, 0]
+            self.root = tuple((P[0, 0], G[0, 0]) for P, G in
+                              (root_match(np.array([[R]]), np.array([[L]]), h) for h in (config.Dt, 0.5*config.Dt)))
         self.vprev = 0.0
         self.i = 0.0
         self.ih = 0.0
 
+    def coefficients(self):
+        """(phi, A) of the present step; phi is None for the trapezoidal rule"""
+        if self.root is None:
+            return None, self.A
+        return self.root[1] if config.euler else self.root[0]
+
     def stamp(self):
-        return self.A*np.outer(self.a, self.a)
+        return self.coefficients()[1]*np.outer(self.a, self.a)
 
     def history(self, t):
-        if self.phi is not None:
-            self.ih = self.phi*self.i
+        phi = self.coefficients()[0]
+        if phi is not None:
+            self.ih = phi*self.i
         elif config.euler:
             self.ih = self.A*self.L2*self.i
         else:
@@ -692,7 +707,7 @@ class TransformerCore(Element):
 
     def update(self, t, v):
         vb = float(self.a @ np.asarray(v, dtype=float))
-        self.i = self.A*vb + self.ih
+        self.i = self.coefficients()[1]*vb + self.ih
         self.vprev = vb
 
     def current_names(self):
