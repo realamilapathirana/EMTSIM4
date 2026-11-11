@@ -293,7 +293,17 @@ def canvas(w, h, xlim, ylim):
     return fig, ax
 
 
+FONT_SCALE = 1.0   # a number, or a function of (figure, file name): enlarges all text before saving (small-format editions)
+
+
 def save(fig, name):
+    k = FONT_SCALE(fig, name) if callable(FONT_SCALE) else FONT_SCALE
+    if k != 1.0:
+        import matplotlib.text
+        for t in fig.findobj(matplotlib.text.Text):
+            t.set_fontsize(t.get_fontsize() * k)
+        if any(ax.axison for ax in fig.axes):
+            fig.tight_layout()
     fig.savefig(os.path.join(FIG, name), transparent=False, facecolor="white")
     plt.close(fig)
 
@@ -493,10 +503,10 @@ def fig_loop():
         ax.text(x + w / 2, y + h / 2 - 0.35, body, ha="center", va="center", fontsize=9.5, linespacing=1.35)
     def arrow(x0, y0, x1, y1):
         ax.annotate("", xy=(x1, y1), xytext=(x0, y0), arrowprops=dict(arrowstyle="-|>", color=INK, lw=1.4, mutation_scale=14))
-    box(0.0, 2.2, 3.6, 2.6, "Last step (known)", "v(t − Δt)\ni(t − Δt)", fc="#F3F4F6")
-    box(4.8, 2.2, 5.4, 2.6, "The notes", "I_hist(t) = i(t−Δt) + v(t−Δt) / R_L\nfor every L and C", fc=NOTE, ec="#C9B44A")
+    box(0.0, 2.2, 3.6, 2.6, "Last step", "known:\nv(t − Δt), i(t − Δt)", fc="#F3F4F6")
+    box(4.8, 2.2, 5.4, 2.6, "The notes", "I_hist(t) = i(t−Δt)\n+ v(t−Δt) / R_L\nfor every L and C", fc=NOTE, ec="#C9B44A")
     box(11.4, 2.2, 4.4, 2.6, "Solve", "G v(t) = i_hist(t)\nunknown: v(t)")
-    box(11.4, -0.4, 4.4, 1.9, "Branch currents", "i(t) = v(t) / R_eq + I_hist(t)")
+    box(11.4, -0.4, 4.4, 1.9, "Branch currents", "i(t) = v(t) / R_eq\n+ I_hist(t)")
     arrow(3.6, 3.5, 4.8, 3.5)
     arrow(10.2, 3.5, 11.4, 3.5)
     arrow(13.6, 2.2, 13.6, 1.5)
@@ -1221,7 +1231,8 @@ instant, just like real ones.</p>
 <figcaption>Figure 14: The network of Figure 11, with a fault from node 3 to ground.</figcaption></figure>
 <p>While the fault is open, it stamps a tiny 1/10<sup>6</sup> S onto <b>G</b><sub>33</sub>. When it
 closes, it stamps 1/0.01 = 100 S:</p>
-{eq("before:&#8195;", sb(BG, "UU"), "=", mat(Gf_off, 6), "&#8195;&#8195;during:&#8195;", sb(BG, "UU"), "=", mat(Gf_on, 4))}
+{eq("before:&#8195;", sb(BG, "UU"), "=", mat(Gf_off, 6))}
+{eq("during:&#8195;", sb(BG, "UU"), "=", mat(Gf_on, 4))}
 <p>Figure 15 shows what happens. When the fault hits, node 3 collapses to almost zero, and the capacitor
 dumps its charge into the fault. The current in <i>L</i> grows to about {f(ifault_peak, 1)} A; the
 inductor is the only thing limiting it. When the fault is removed, the capacitor and the inductor play
@@ -1500,7 +1511,7 @@ img.ghost { float: right; width: 2.5in; margin: 0 0 0.3em 0.8em; }
 """
 
 
-def print_pdf(html):
+def print_pdf(html, pdf=None):
     candidates = [r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
                   r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
                   r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -1509,7 +1520,7 @@ def print_pdf(html):
     if not browser:
         print("  no Edge or Chrome found: open emt_book.html and print it to PDF")
         return
-    pdf = os.path.join(HERE, "TinyBookOfEMT.pdf")
+    pdf = pdf or os.path.join(HERE, "TinyBookOfEMT.pdf")
     prof = tempfile.mkdtemp()
     try:
         subprocess.run([browser, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
