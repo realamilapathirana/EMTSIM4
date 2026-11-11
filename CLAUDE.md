@@ -14,7 +14,7 @@ drives either one. The user-facing documentation is in README.md and docs/switch
   made in both `*.py` and `src/*`, with the same algorithm and the same order of operations.
 - **Commits** are authored by the user (Amila) only. Do not add `Co-Authored-By` or other Claude
   attribution lines to commit messages. Commit only when asked. Pushing is
-  `git push emtsim3 new-elements:master` (remote `emtsim3` = github.com/realamilapathirana/EMTSIM3).
+  `git push emtsim4 new-elements:master` (remote `emtsim4` = github.com/realamilapathirana/EMTSIM4).
 - **The Tiny book** (`docs/book/`) is rebuilt only when the user asks for book changes.
 - Comments are kept sparse. Docstrings and header comments state what a function computes, not
   how the code got there.

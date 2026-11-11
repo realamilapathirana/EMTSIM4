@@ -59,7 +59,7 @@ The server refuses to listen beyond this computer (`--host 0.0.0.0`) without a u
 
 ```sh
 sudo useradd --system --home /srv/emtsim emtsim
-sudo git clone https://github.com/realamilapathirana/EMTSIM3.git /srv/emtsim
+sudo git clone https://github.com/realamilapathirana/EMTSIM4.git /srv/emtsim
 cd /srv/emtsim
 sudo python3 -m venv .venv && sudo .venv/bin/pip install -r requirements.txt
 sudo ./build.sh                                   # the C++ solver (cmake and g++ needed)
