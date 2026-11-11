@@ -144,6 +144,12 @@
   .dialog .item:hover { background: #EEF7F6; }
   .dialog .item small { color: var(--muted); }
   .dialog .foot { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  .dialog .group { padding: 8px 10px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .login { padding: 14px 16px; display: grid; gap: 10px; }
+  .login label { display: grid; gap: 4px; font-size: 13px; }
+  .login input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; }
+  #loginMsg { color: #B3261E; font-size: 13px; min-height: 1em; }
+  #userBox { font-size: 12px; color: var(--muted); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -160,10 +166,12 @@
   </select>
   <div class="spacer"></div>
   <div id="status"></div>
+  <span id="userBox"></span>
   <select id="engine" title="Which simulator to run">
     <option value="cpp">C++</option>
     <option value="python">Python</option>
     <option value="both">Both (compare)</option>
+    <option value="wasm">C++ in this browser</option>
   </select>
   <button class="primary" id="btnRun" title="Run the simulation (F5)">▶ Run</button>
 </header>
@@ -218,6 +226,18 @@
       <button id="btnCloseOpen">Cancel</button>
     </div>
   </div>
+</div>
+
+<div class="modal hidden" id="loginDialog">
+  <form class="dialog" id="loginForm">
+    <h3>Sign in to EMTSim</h3>
+    <div class="login">
+      <label>User <input type="text" id="loginUser" autocomplete="username" required></label>
+      <label>Password <input type="password" id="loginPass" autocomplete="current-password" required></label>
+      <div id="loginMsg"></div>
+    </div>
+    <div class="foot"><span></span><button class="primary" type="submit">Sign in</button></div>
+  </form>
 </div>
 
 <script src="schematic.js"></script>
@@ -869,18 +889,77 @@ window.addEventListener('keydown', (ev) => {
 // ------------------------------------------------------------------ files
 function baseName() { return ($('fileName').value || 'my_circuit').trim().replace(/\.net$/i, ''); }
 function currentText() { return raw != null ? raw : net.text; }
+// Where the work happens. 'server': gui/server.py, on this computer or a group server with login
+// (info.login). 'static': the files from gui/make_site.py on any web host; circuits are read from
+// circuits/, saved in this browser, and run by the C++ solver compiled to WebAssembly.
+let info = { mode: 'static', engines: ['wasm'], wasm: true };
 async function api(path, body) {
   const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
-  const data = await r.json();
+  let data;
+  try { data = await r.json(); } catch (e) { throw new Error(r.status + ' ' + r.statusText); }
+  if (r.status === 401 && info.login) showLogin();
   if (!r.ok || data.error) throw new Error(data.error || r.statusText);
   return data;
+}
+async function detectBackend() {
+  try {
+    const r = await fetch('api/info', { cache: 'no-store' });
+    if (r.ok) { info = await r.json(); return; }
+  } catch (e) { /* no server: a static site */ }
+  info = { mode: 'static', engines: ['wasm'], wasm: true };
+}
+function syncBackendUI() {
+  for (const o of $('engine').options) o.hidden = !info.engines.includes(o.value);
+  if (!info.engines.includes($('engine').value)) $('engine').value = info.engines[0];
+  const where = info.mode === 'static' ? 'this browser' : info.login ? 'your folder on the server' : 'circuits/';
+  $('btnSave').title = 'Save to ' + where + ' (Ctrl+S)';
+  $('fileName').title = 'File name (saved in ' + where + ')';
+  $('userBox').innerHTML = info.user ? 'signed in as <b>' + escapeHtml(info.user) + '</b> <button class="lnk" id="btnLogout">sign out</button>' : '';
+  if (info.user) $('btnLogout').onclick = async () => { await api('api/logout', {}); location.reload(); };
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function showLogin() { $('loginDialog').classList.remove('hidden'); $('loginUser').focus(); }
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('api/login', { user: $('loginUser').value, password: $('loginPass').value });
+    location.reload();
+  } catch (err) { $('loginMsg').textContent = err.message; $('loginPass').value = ''; }
+};
+
+// Circuits saved in this browser (static site)
+const LIBRARY = 'emtsim-circuits';
+function library() { try { return JSON.parse(localStorage.getItem(LIBRARY) || '{}'); } catch (e) { return {}; } }
+async function listCircuits() {       // [{name, drawing, mine}]
+  if (info.mode === 'server') return (await api('api/circuits')).files;
+  const r = await fetch('circuits/index.json', { cache: 'no-store' });
+  const examples = r.ok ? (await r.json()).files : [];
+  const mine = Object.keys(library()).sort().map((name) => ({ name, drawing: /^#@layout /m.test(library()[name]), mine: true }));
+  return mine.concat(examples);
+}
+async function readCircuit(name, mine) {
+  if (info.mode === 'server') return api('api/circuit?name=' + encodeURIComponent(name) + (mine ? '&mine=1' : ''));
+  if (mine) return { name, text: library()[name] };
+  const r = await fetch('circuits/' + encodeURIComponent(name));
+  if (!r.ok) throw new Error(name + ': ' + r.status + ' ' + r.statusText);
+  return { name, text: await r.text() };
 }
 async function save() {
   if (raw == null && net.errors.length) { showTab('netlist'); updateStatus('Fix the errors before saving: ' + net.errors[0], 'err'); return; }
   try {
-    const r = await api('/api/save', { name: baseName(), text: currentText() });
+    let msg;
+    if (info.mode === 'server') {
+      const r = await api('api/save', { name: baseName(), text: currentText() });
+      msg = info.login ? 'Saved ' + r.saved + ' in your folder'
+                       : 'Saved ' + r.saved + '. Run it from a terminal with  .\\run.bat ' + r.saved.replace('/', '\\');
+    } else {
+      const lib = library();
+      lib[baseName() + '.net'] = currentText();
+      localStorage.setItem(LIBRARY, JSON.stringify(lib));
+      msg = 'Saved ' + baseName() + '.net in this browser (Open lists it; Download keeps a copy on your computer)';
+    }
     dirty = false;
-    updateStatus('Saved ' + r.saved + '. Run it from a terminal with  .\\run.bat ' + r.saved.replace('/', '\\'), 'ok');
+    updateStatus(msg, 'ok');
   } catch (e) { updateStatus('Save failed: ' + e.message, 'err'); }
 }
 function download() {
@@ -906,19 +985,28 @@ async function openDialog() {
   $('openDialog').classList.remove('hidden');
   $('openList').innerHTML = '<div class="empty">Loading…</div>';
   try {
-    const { files } = await api('/api/circuits');
+    const files = await listCircuits();
     $('openList').innerHTML = files.length ? '' : '<div class="empty">No .net files in circuits/ yet.</div>';
+    const grouped = files.some((f) => f.mine);
+    let group = null;
     for (const f of files) {
+      if (grouped && group !== !!f.mine) {
+        group = !!f.mine;
+        const h = document.createElement('div');
+        h.className = 'group';
+        h.textContent = group ? (info.mode === 'static' ? 'Saved in this browser' : 'Your circuits') : 'Examples';
+        $('openList').appendChild(h);
+      }
       const d = document.createElement('div');
       d.className = 'item';
-      d.innerHTML = '<span>' + f.name + '</span><small>' + (f.drawing ? 'drawing' : 'netlist only (run, not edit)') + '</small>';
+      d.innerHTML = '<span>' + escapeHtml(f.name) + '</span><small>' + (f.drawing ? 'drawing' : 'netlist only (run, not edit)') + '</small>';
       d.onclick = async () => {
-        try { const r = await api('/api/circuit?name=' + encodeURIComponent(f.name)); loadText(r.name, r.text); closeOpen(); }
+        try { const r = await readCircuit(f.name, f.mine); loadText(r.name, r.text); closeOpen(); }
         catch (e) { updateStatus('Open failed: ' + e.message, 'err'); }
       };
       $('openList').appendChild(d);
     }
-  } catch (e) { $('openList').innerHTML = '<div class="empty">Could not list circuits: ' + e.message + '</div>'; }
+  } catch (e) { $('openList').innerHTML = '<div class="empty">Could not list circuits: ' + escapeHtml(e.message) + '</div>'; }
 }
 function closeOpen() { $('openDialog').classList.add('hidden'); }
 $('btnOpen').onclick = openDialog; $('btnCloseOpen').onclick = closeOpen;
@@ -959,27 +1047,55 @@ function autosave() {
 }
 
 // ------------------------------------------------------------------ run + results
+// The C++ solver compiled to WebAssembly, in a worker (emtsim_worker.js); its result takes the
+// place of the server's C++ result
+let worker = null, browserRun = null;
+function runInBrowser(text) {
+  return new Promise((resolve, reject) => {
+    if (!worker) worker = new Worker('emtsim_worker.js');
+    const id = Date.now() + Math.random();
+    browserRun = { id, reject };
+    worker.onmessage = (e) => { if (browserRun && e.data.id === browserRun.id) { browserRun = null; resolve(e.data.result); } };
+    worker.onerror = (e) => {
+      browserRun = null; worker.terminate(); worker = null;
+      reject(new Error(e.message || 'the browser solver could not start (is wasm/emtsim.wasm there? build it with gui/build_wasm.py)'));
+    };
+    worker.postMessage({ id, text });
+  });
+}
+function stopBrowserRun() {
+  if (!browserRun) return;
+  worker.terminate(); worker = null;
+  const r = browserRun; browserRun = null;
+  r.reject(new Error('stopped'));
+}
+
 async function run() {
+  if (browserRun) return stopBrowserRun();
   if (raw == null && net.errors.length) { showTab('netlist'); updateStatus('Fix the errors before running: ' + net.errors[0], 'err'); return; }
   const engine = $('engine').value;
-  $('btnRun').disabled = true; $('btnRun').textContent = '… Running';
-  updateStatus('Running the ' + { cpp: 'C++', python: 'Python', both: 'C++ and Python' }[engine] + ' simulator…');
+  const inBrowser = engine === 'wasm';
+  $('btnRun').disabled = !inBrowser; $('btnRun').textContent = inBrowser ? '■ Stop' : '… Running';
+  updateStatus('Running the ' + { cpp: 'C++', python: 'Python', both: 'C++ and Python', wasm: 'C++ (in this browser)' }[engine] + ' simulator…');
   try {
     const meta = raw == null ? { phases: net.phases, drawNodes: net.nodeCount } : { phases: 1, drawNodes: 0 };
-    const res = Object.assign(await api('/api/run', { text: currentText(), engine }), meta);
+    const res = Object.assign(inBrowser ? { cpp: await runInBrowser(currentText()), browser: true }
+                                        : await api('api/run', { text: currentText(), engine }), meta);
     if ($('hold').checked) {           // compare with the held run; the first run while ticked becomes it
       if (held) res.overlay = held; else held = snapshot(res);
     }
     results = res;
     if (!$('hold').checked) plotZoom = null;
-    const errs = ['cpp', 'python'].filter((k) => results[k] && results[k].error).map((k) => (k === 'cpp' ? 'C++' : 'Python') + ': ' + results[k].error);
+    const label = (k) => (k === 'cpp' ? (results.browser ? 'C++ (in this browser)' : 'C++') : 'Python');
+    const errs = ['cpp', 'python'].filter((k) => results[k] && results[k].error).map((k) => label(k) + ': ' + results[k].error);
     $('logText').textContent = ['cpp', 'python'].filter((k) => results[k]).map((k) =>
-      '=== ' + (k === 'cpp' ? 'C++' : 'Python') + ' ===\n' + (results[k].error ? 'ERROR: ' + results[k].error + '\n' : '') + (results[k].log || '(no switching events)')).join('\n\n');
+      '=== ' + label(k) + ' ===\n' + (results[k].error ? 'ERROR: ' + results[k].error + '\n' : '') + (results[k].log || '(no switching events)')).join('\n\n');
     if (errs.length) { updateStatus(errs[0], 'err'); showTab('log'); }
-    else { updateStatus('Simulation finished', 'ok'); showTab('results'); }
+    else { updateStatus('Simulation finished' + (results.cpp && results.cpp.sim_ms ? ' in ' + Math.round(results.cpp.sim_ms) + ' ms' : ''), 'ok'); showTab('results'); }
     renderResults();
   } catch (e) {
-    updateStatus('Could not run: ' + e.message + (location.protocol === 'file:' ? ' (start the editor with gui.bat)' : ''), 'err');
+    if (e.message === 'stopped') updateStatus('Run stopped', 'ok');
+    else updateStatus('Could not run: ' + e.message + (location.protocol === 'file:' ? ' (start the editor with gui.bat)' : ''), 'err');
   } finally {
     $('btnRun').disabled = false; $('btnRun').textContent = '▶ Run';
   }
@@ -1343,6 +1459,9 @@ window.addEventListener('resize', () => { applyView(); clearTimeout(resizeTimer)
   syncPhaseUI();
   setTool('select');
   applyView();
+  if (location.protocol !== 'file:') await detectBackend();
+  syncBackendUI();
+  if (info.login && !info.user) { render(); renderProps(); showLogin(); return; }
   let restored = false;
   try {
     const s = JSON.parse(localStorage.getItem('emtsim-editor') || 'null');
@@ -1360,16 +1479,16 @@ window.addEventListener('resize', () => { applyView(); clearTimeout(resizeTimer)
       $('banner').style.display = 'block';
       return;
     }
-    try { const r = await api('/api/circuit?name=example8.net'); loadText(r.name, r.text); } catch (e) { /* no example */ }
+    try { const r = await readCircuit('example8.net'); loadText(r.name, r.text); } catch (e) { /* no example */ }
   }
   // URL options:  #open=grid100.net  opens a file from circuits/;
-  //               #run (or #run=cpp|python|both) runs the circuit straight away.  Combine with &.
+  //               #run (or #run=cpp|python|both|wasm) runs the circuit straight away.  Combine with &.
   const opts = new URLSearchParams(location.hash.slice(1));
   if (opts.get('open')) {
-    try { const r = await api('/api/circuit?name=' + encodeURIComponent(opts.get('open'))); loadText(r.name, r.text); }
+    try { const r = await readCircuit(opts.get('open')); loadText(r.name, r.text); }
     catch (e) { updateStatus('Open failed: ' + e.message, 'err'); }
   }
-  if (opts.has('run')) { if (/^(cpp|python|both)$/.test(opts.get('run'))) $('engine').value = opts.get('run'); run(); }
+  if (opts.has('run')) { if (info.engines.includes(opts.get('run'))) $('engine').value = opts.get('run'); run(); }
 })();
 </script>
 </body>

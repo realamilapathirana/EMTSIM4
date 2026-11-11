@@ -10,3 +10,10 @@
 
 # figures rendered for the Word version (embedded in TinyBookOfEMT.docx)
 docs/book/fig/*.png
+
+# built by gui/build_wasm.py and gui/make_site.py; saved circuits of a group server
+/gui/wasm/
+/site/
+/userdata/
+users.json
+__pycache__/

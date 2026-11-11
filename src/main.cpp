@@ -6,10 +6,7 @@
 #include "config.h"
 #include "netlist.h"
 #include "network.h"
-#include "switching.h"
-
-// Re-solve a step at most this many times while non-linear elements change state
-constexpr int MAX_ITERATIONS = 50;
+#include "simulation.h"
 
 // Usage:  emtsim                         -> circuit in circuit.cpp
 //         emtsim circuits/grid100.net    -> circuit from a netlist file
@@ -31,8 +28,6 @@ int main(int argc, char** argv) {
                 path = arg;
         }
         std::cout << "\nStart running the simulation..... \n\n";
-        double Time = config::srtTime;
-
         const auto wallStart = std::chrono::steady_clock::now();
 
         // Initialize the network with the circuit from a netlist file or circuit.cpp
@@ -41,21 +36,8 @@ int main(int argc, char** argv) {
         if (config::forcedInterp >= 0) config::interp = config::forcedInterp != 0;
         std::cout << "Chatter removal: " << config::chatterName(config::chatter) << ", switching interpolation "
                   << (config::interp ? "on" : "off") << "\n\n";
-        Network EMTDC(std::move(ckt.elements), ckt.userNodes);
-        EMTDC.updateSwitches(Time);   // initial switch/fault states
-        EMTDC.refactor();
-
-        if (config::removal() || config::interp) {
-            runWithEvents(EMTDC, MAX_ITERATIONS);
-        } else {
-            // plain trapezoidal loop; half a step of tolerance because Time accumulates round-off
-            while (Time < config::stpTime - 0.5 * config::Dt) {
-                Time += config::Dt;
-                if (EMTDC.updateSwitches(Time)) EMTDC.refactor();
-                EMTDC.solveStep(Time, Network::AllValves, MAX_ITERATIONS);
-                EMTDC.recordv(Time);
-            }
-        }
+        const auto net = simulate(std::move(ckt));
+        const Network& EMTDC = *net;
         const int unconverged = EMTDC.unconverged;
 
         // Setup + time loop, excluding writing the results

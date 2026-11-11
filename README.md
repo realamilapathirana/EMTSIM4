@@ -36,6 +36,7 @@ You need Python 3 and Visual Studio 2019 or later with "Desktop development with
 | Run a circuit file with C++ and plot it | `.\run.bat circuits\fault_clearing.net` |
 | Run a circuit file with Python and plot it | `.venv\Scripts\python main.py circuits\fault_clearing.net` |
 | Compare C++ and Python on a circuit | `.venv\Scripts\python compare.py --netlist circuits\fault_clearing.net --plot` |
+| Put the editor on the web (simulations in the visitor's browser), or run it for a group | see [docs/deploy.md](docs/deploy.md) |
 
 The circuits to try are in [`circuits/`](circuits): `example8.net`, `example3ph.net`, `fault_clearing.net`, `line_energisation.net`, `transformer_inrush.net`, `rectifier.net`, `machines.net`, `grid100.net` and `grid1000.net`, plus the five `demo_*.net` circuits that show what chatter removal and switching interpolation do. In PowerShell, keep the `.\` in front of the `.bat` files.
 
@@ -180,7 +181,9 @@ Start the editor with:
 .\gui.bat                 # or: .venv\Scripts\python gui\server.py
 ```
 
-It opens in your browser at `http://127.0.0.1:8765`. Press **Ctrl+C** in the terminal to stop it. The server only listens on your own computer.
+It opens in your browser at `http://127.0.0.1:8765`. Press **Ctrl+C** in the terminal to stop it. The server only listens on your own computer, and the simulations run there as ordinary programs.
+
+The same editor also works as a public web site, where every simulation runs in the visitor's browser (the C++ solver compiled to WebAssembly), and as a group server with sign-in, a folder per user, run limits and a queue. [docs/deploy.md](docs/deploy.md) explains both.
 
 - **Draw:** pick a component on the left, then click on the grid to place it. Press **R** to rotate before or after placing.
 - **Wire:** use the **Wire** tool (**W**). Click to start, click to add corners, and finish on a terminal or another wire, or press **Esc**. A wire that ends on another wire joins it; wires that only cross do not.
@@ -189,7 +192,7 @@ It opens in your browser at `http://127.0.0.1:8765`. Press **Ctrl+C** in the ter
 - **Move and delete:** drag a component to move it; wires attached to its terminals follow. **Del** deletes, **Ctrl+Z** and **Ctrl+Y** undo and redo, the mouse wheel zooms, and dragging the background pans.
 - **Node numbers:** they are assigned automatically, left to right, and shown as teal badges. They are the V1, V2… in the plots.
 - **Problems:** short-circuited parts, unconnected terminals (red ring), a missing ground and ideal sources without a grounded terminal are listed in the right panel and the **Netlist** tab.
-- **Run (F5):** runs the C++ or Python simulator, or **Both (compare)**, and plots every node voltage, with faults shaded and switch operations dashed. Hover over a plot to read values. In compare mode the summary shows both run times, the speed-up and the largest Python − C++ difference.
+- **Run (F5):** runs the C++ or Python simulator, **Both (compare)**, or **C++ in this browser** (when `gui/build_wasm.py` has built it; the button becomes **Stop** while it runs), and plots every node voltage, with faults shaded and switch operations dashed. Hover over a plot to read values. In compare mode the summary shows both run times, the speed-up and the largest Python − C++ difference.
 - **Currents:** choose *Currents* above the plots to see the branch current of every element, and the machines' speed, rotor angle, power and torque. Type part of a name in *Show* to filter.
 - **Run settings:** with nothing selected, the right panel has the time step and duration of the run (written into the file as a `.tran` line), a tick box for switching at the exact instant (interpolation, on by default) and a choice of chatter-removal method: after a switching (CDA, the default), after a switching and wherever detected, root matching of R–L branches with detection for the rest, PSCAD's half-step interpolation, or off (see [Switching](#4-switching-interpolation-and-chatter-removal)). From the command line the same two are `--chatter=off|cda|detect|rootmatch|pscad` and `--interp=on|off` after the netlist name, for `run.bat`, `emtsim.exe`, `main.py` and `compare.py` alike.
 - **Hold run:** tick it above the plots to keep the run you are looking at, and its zoom, as a reference. Then change anything (the chatter removal or interpolation tick boxes, a value, the time step) and press ▶ Run: the new run is drawn in colour over the held one (grey dashed), with the maximum difference. The reference stays until you untick it. The `demo_*.net` circuits are made for this; see [Demonstrations](#demonstrations-chatter-and-interpolation). With **Both (compare)**, the Python run is drawn as a dark dashed line over the C++ line, so it stays visible when the two coincide.
@@ -430,7 +433,10 @@ Three small circuits in [`circuits/`](circuits), from Watson & Arrillaga's chapt
 |---|---|
 | [`compare.py`](compare.py) | Runs both versions and compares results and speed |
 | [`netlist.py`](netlist.py), [`src/netlist.cpp`](src/netlist.cpp) | Netlist file readers (Python, C++) |
-| [`gui.bat`](gui.bat), [`gui/`](gui) | Circuit editor: page, drawing-to-netlist logic and tests, local server, Python runner |
+| [`gui.bat`](gui.bat), [`gui/`](gui) | Circuit editor: page, drawing-to-netlist logic and tests, server (with [`accounts.py`](gui/accounts.py) for a group server), Python runner |
+| [`src/simulation.cpp`](src/simulation.cpp), [`src/wasm_api.cpp`](src/wasm_api.cpp), [`gui/build_wasm.py`](gui/build_wasm.py), [`gui/emtsim_worker.js`](gui/emtsim_worker.js), [`gui/make_site.py`](gui/make_site.py) | One run of the C++ solver; the same as a WebAssembly module, its build, the browser worker that runs it, and the static web site ([docs/deploy.md](docs/deploy.md)) |
+| [`tests/test_wasm.js`](tests/test_wasm.js), [`tests/test_server.py`](tests/test_server.py), [`tests/test_web.js`](tests/test_web.js) | The WebAssembly build against the native solver; the server's sign-in, folders, limits and queue; the editor in a headless browser in all three modes |
+| [`build.sh`](build.sh) | Linux and macOS: build and test |
 | [`circuits/`](circuits) | Netlist files: `example8.net` (the 8-node example), `example3ph.net` (three-phase), `grid100.net` and `grid1000.net`, and their generators `make_example3ph.py`, `make_grid100.py` and `make_grid1000.py` |
 | [`docs/`](docs) | [`switching.md`](docs/switching.md) (interpolation and chatter removal), the Tiny book, the logo (with `make_logo.py`) and the example network plot |
 
