@@ -67,6 +67,27 @@ Matrix transpose(const Matrix& A) {
     return T;
 }
 
+Matrix expm(const Matrix& A) {
+    const std::size_t n = A.rows();
+    double norm = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        double r = 0.0;
+        for (std::size_t j = 0; j < n; ++j) r += std::fabs(A(i, j));
+        norm = std::max(norm, r);
+    }
+    int sq = 0;
+    while (norm > 0.25) { norm *= 0.5; ++sq; }
+    const Matrix B = std::ldexp(1.0, -sq) * A;
+    Matrix E(n, n), term(n, n);
+    for (std::size_t i = 0; i < n; ++i) E(i, i) = term(i, i) = 1.0;
+    for (int k = 1; k <= 20; ++k) {
+        term = (1.0 / k) * (term * B);
+        E = E + term;
+    }
+    for (int k = 0; k < sq; ++k) E = E * E;
+    return E;
+}
+
 Matrix inverse(const Matrix& A) {
     LUFactor lu;
     lu.factor(A);

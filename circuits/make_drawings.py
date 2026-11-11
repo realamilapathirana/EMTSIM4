@@ -276,3 +276,58 @@ The breaker now opens exactly where its current crosses zero, and V3 stays at 0 
 Try each option on its own, too: interpolation alone still leaves the chatter.
 Command line: run.bat circuits\demo_breaker.net --chatter=on --interp=on
 """)
+
+# ---------------------------------------------------------------- detection: chatter without a switching
+d = Drawing(settings=dict(dt="100u", tstop="3m"))
+d.add("V", "BATTERY", 0, 8, 0, mag="10", angle="0", freq="0", r="", l="")
+d.gnd(0, 8)
+d.wire((4, 8), (6, 8))
+d.add("R", "R", 6, 8, 0, value="10m")
+d.wire((10, 8), (14, 8))
+d.add("C", "C", 14, 8, 90, value="100u")
+d.gnd(14, 12)
+save("demo_detect", d, "demo: chatter that no switching announces", """
+DEMO: chatter without a switching, and chatter detection
+
+An ideal 10 V battery charges 100 uF through 10 mohm. The true current is a pulse that is over in
+about a microsecond (RC = 1 us), far shorter than the 100 us time step. The trapezoidal rule cannot
+represent it: the capacitor current (element C) flips between about +19 A and -19 A at every step,
+dying away only slowly. No switch operates, so chatter removal by CDA (the default, as in this
+file) never acts.
+
+In the editor:
+  1. Run, switch the plots to Currents, and look at C.
+  2. Tick "Hold run".
+  3. Under Run settings, set Chatter removal to "after a switching, and wherever detected"; Run.
+The detection sees the current alternate for three steps and takes the two backward-Euler half
+steps there: the current is gone after the fourth step.
+Command line: run.bat circuits\demo_detect.net --chatter=detect
+""")
+
+# ---------------------------------------------------------------- root matching: an R-L branch
+d = Drawing(settings=dict(dt="100u", tstop="5m", chatter="off", interp="off"))
+d.add("V", "BATTERY", 0, 8, 0, mag="10", angle="0", freq="0", r="", l="")
+d.gnd(0, 8)
+d.wire((4, 8), (6, 8))
+d.add("SW", "SWITCH", 6, 8, 0, state="closed", times="0.003", opens="at the time")
+d.wire((10, 8), (14, 8))
+d.add("RL", "LOAD", 14, 8, 90, r="1", l="1m")
+d.gnd(14, 12)
+save("demo_rootmatch", d, "demo: root matching of an R-L branch", """
+DEMO: root matching (Watson & Arrillaga chapter 5)
+
+The circuit of demo_chatter, with the 1 ohm and 1 mH as one series R-L branch (element LOAD). With
+the trapezoidal rule the branch voltage (node 2) flips +-187 V at every step after the switch
+opens at 3 ms. Root matching replaces the branch's difference equation by the exact exponential
+one, i(t) = exp(-R dt / L) i(t - dt) + (1 - exp(-R dt / L)) / R v(t), which has no memory of the
+voltage and so cannot chatter.
+
+Chatter removal and interpolation are OFF in this file. In the editor:
+  1. Run, and look at V2 (and the current in LOAD).
+  2. Tick "Hold run".
+  3. Under Run settings, set Chatter removal to "root matching of R-L branches"; Run.
+No chatter, and the current rise before 3 ms is also closer to exact (it is exact for a step).
+Root matching applies only to R-L branches (RL, RL3, line and source impedances, transformers,
+machines); separate L and C elements keep the trapezoidal rule.
+Command line: run.bat circuits\demo_rootmatch.net --chatter=rootmatch
+""")

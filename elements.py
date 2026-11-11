@@ -397,8 +397,26 @@ def sequence_matrix(x1, x0):
     return np.array([[s, m, m], [m, s, m], [m, m, s]])
 
 
+def root_match(R, L, dt):
+    """Exponential (root-matching) model of series R-L branches, di/dt = L^-1 (v - R i), with the voltage
+    held at its new value over the step (Watson & Arrillaga eq. 5.2, input type a):
+        i(t) = Gamma v(t) + Phi i(t - dt),  Phi = exp(-L^-1 R dt),  Gamma = integral of exp(-L^-1 R s) ds L^-1
+    For one branch: Phi = exp(-R dt / L), Gamma = (1 - Phi) / R. None if L is singular."""
+    import scipy.linalg
+    n = R.shape[0]
+    if abs(np.linalg.det(L)) < 1e-300:
+        return None
+    Li = np.linalg.inv(L)
+    M = np.zeros((2*n, 2*n))
+    M[:n, :n] = -Li @ R*dt
+    M[:n, n:] = Li*dt
+    E = scipy.linalg.expm(M)
+    return E[:n, :n], E[:n, n:]
+
+
 class RLBlock:
-    """n coupled series branches: i = A v + A [v_prev + (2L/dt - R) i_prev],  A = (R + 2L/dt)^-1"""
+    """n coupled series branches: i = A v + A [v_prev + (2L/dt - R) i_prev],  A = (R + 2L/dt)^-1
+    (chatter=rootmatch: i = Gamma v + Phi i_prev, see root_match)"""
 
     def __init__(self, R, L):
         R = np.atleast_2d(np.asarray(R, dtype=float))
@@ -407,6 +425,11 @@ class RLBlock:
         self.A = np.linalg.inv(R + (2.0/config.Dt)*L)
         self.B = (2.0/config.Dt)*L - R
         self.L2 = (2.0/config.Dt)*L
+        self.Phi = None
+        if config.chatter == "rootmatch":
+            rm = root_match(R, L, config.Dt)
+            if rm is not None:
+                self.Phi, self.A = rm
         self.vprev = np.zeros(self.n)
         self.iprev = np.zeros(self.n)
         self.ih = np.zeros(self.n)
@@ -421,7 +444,12 @@ class RLBlock:
                 g[to[i], frm[j]] -= a
 
     def history(self, h, frm, to):
-        self.ih = self.A @ (self.L2 @ self.iprev) if config.euler else self.A @ (self.vprev + self.B @ self.iprev)
+        if self.Phi is not None:
+            self.ih = self.Phi @ self.iprev
+        elif config.euler:
+            self.ih = self.A @ (self.L2 @ self.iprev)
+        else:
+            self.ih = self.A @ (self.vprev + self.B @ self.iprev)
         for i in range(self.n):
             h[frm[i]] += self.ih[i]
             h[to[i]] -= self.ih[i]
@@ -642,6 +670,10 @@ class TransformerCore(Element):
         self.A = 1.0/(R + 2.0*L/config.Dt)
         self.B = 2.0*L/config.Dt - R
         self.L2 = 2.0*L/config.Dt
+        self.phi = None
+        if config.chatter == "rootmatch" and L > 0:
+            Phi, Gamma = root_match(np.array([[R]]), np.array([[L]]), config.Dt)
+            self.phi, self.A = Phi[0, 0], Gamma[0, 0]
         self.vprev = 0.0
         self.i = 0.0
         self.ih = 0.0
@@ -650,7 +682,12 @@ class TransformerCore(Element):
         return self.A*np.outer(self.a, self.a)
 
     def history(self, t):
-        self.ih = self.A*self.L2*self.i if config.euler else self.A*(self.vprev + self.B*self.i)
+        if self.phi is not None:
+            self.ih = self.phi*self.i
+        elif config.euler:
+            self.ih = self.A*self.L2*self.i
+        else:
+            self.ih = self.A*(self.vprev + self.B*self.i)
         return self.a*self.ih
 
     def update(self, t, v):

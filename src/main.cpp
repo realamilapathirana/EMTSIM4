@@ -13,21 +13,20 @@ constexpr int MAX_ITERATIONS = 50;
 
 // Usage:  emtsim                         -> circuit in circuit.cpp
 //         emtsim circuits/grid100.net    -> circuit from a netlist file
-//         emtsim circuits/grid100.net --chatter=off --interp=off
+//         emtsim circuits/grid100.net --chatter=detect --interp=off
 //                                        -> override the netlist's .options (chatter removal, interpolation)
 int main(int argc, char** argv) {
     try {
         std::string path;
-        int chatter = -1, interp = -1;   // -1: as the netlist says
         for (int k = 1; k < argc; ++k) {
             const std::string arg = argv[k];
             const std::size_t eq = arg.find('=');
-            const std::string key = arg.substr(0, eq);
-            const int on = eq == std::string::npos ? -1 : parseOnOff(arg.substr(eq + 1));
-            if ((key == "--chatter" || key == "--interp") && on >= 0)
-                (key == "--chatter" ? chatter : interp) = on;
+            const std::string key = arg.substr(0, eq), val = eq == std::string::npos ? "" : arg.substr(eq + 1);
+            const int v = key == "--chatter" ? parseChatter(val) : key == "--interp" ? parseOnOff(val) : -1;
+            if (v >= 0)
+                (key == "--chatter" ? config::forcedChatter : config::forcedInterp) = v;
             else if (!arg.empty() && arg[0] == '-')
-                throw std::runtime_error("usage: emtsim [netlist.net] [--chatter=on|off] [--interp=on|off]");
+                throw std::runtime_error("usage: emtsim [netlist.net] [--chatter=off|cda|detect|rootmatch] [--interp=on|off]");
             else
                 path = arg;
         }
@@ -38,15 +37,15 @@ int main(int argc, char** argv) {
 
         // Initialize the network with the circuit from a netlist file or circuit.cpp
         Circuit ckt = !path.empty() ? loadNetlist(path) : buildCircuit();
-        if (chatter >= 0) config::chatter = chatter;
-        if (interp >= 0) config::interp = interp;
-        std::cout << "Chatter removal " << (config::chatter ? "on" : "off") << ", switching interpolation "
+        if (config::forcedChatter >= 0) config::chatter = static_cast<config::Chatter>(config::forcedChatter);
+        if (config::forcedInterp >= 0) config::interp = config::forcedInterp != 0;
+        std::cout << "Chatter removal: " << config::chatterName(config::chatter) << ", switching interpolation "
                   << (config::interp ? "on" : "off") << "\n\n";
         Network EMTDC(std::move(ckt.elements), ckt.userNodes);
         EMTDC.updateSwitches(Time);   // initial switch/fault states
         EMTDC.refactor();
 
-        if (config::chatter || config::interp) {
+        if (config::cda() || config::interp) {
             runWithEvents(EMTDC, MAX_ITERATIONS);
         } else {
             // plain trapezoidal loop; half a step of tolerance because Time accumulates round-off

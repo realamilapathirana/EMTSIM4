@@ -42,6 +42,7 @@ Matrix operator+(const Matrix& A, const Matrix& B);
 Matrix operator*(double s, const Matrix& A);
 Matrix transpose(const Matrix& A);
 Matrix inverse(const Matrix& A);   // throws std::runtime_error if singular
+Matrix expm(const Matrix& A);      // matrix exponential (scaling and squaring, Taylor series)
 
 // LU factorisation with partial pivoting: P A = L U.
 // L (unit diagonal) and U are packed into one matrix, the row swaps in piv_.

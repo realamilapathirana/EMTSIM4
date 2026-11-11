@@ -21,5 +21,10 @@ struct Step {
 };
 std::vector<Step> stepsAfterSwitching();
 
+// Chatter detection (chatter=detect): true if some quantity of the network state alternates from step to
+// step: its last three changes flip sign each time and are nearly equal in size. states: the last four
+// solutions at the regular time step, oldest first; peak: the largest magnitude seen of every quantity.
+bool chatterDetected(const std::vector<Vector>& states, const Vector& peak);
+
 // The time loop with switching interpolation and chatter removal (config::interp / config::chatter)
 void runWithEvents(Network& net, int maxIterations);

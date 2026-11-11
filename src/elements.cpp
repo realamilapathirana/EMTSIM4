@@ -233,9 +233,32 @@ Matrix sequenceMatrix(double X1, double X0) {
     return M;
 }
 
+bool rootMatch(const Matrix& R, const Matrix& L, double dt, Matrix& Phi, Matrix& Gamma) {
+    const std::size_t n = R.rows();
+    Matrix Li;
+    try { Li = inverse(L); } catch (const std::runtime_error&) { return false; }
+    const Matrix LiR = Li * R;
+    Matrix M(2 * n, 2 * n);
+    for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t j = 0; j < n; ++j) {
+            M(i, j) = -LiR(i, j) * dt;
+            M(i, n + j) = Li(i, j) * dt;
+        }
+    const Matrix E = expm(M);
+    Phi = E.block(0, 0, n, n);
+    Gamma = E.block(0, n, n, n);
+    return true;
+}
+
 RLBlock::RLBlock(const Matrix& R, const Matrix& L)
     : n(R.rows()), A(inverse(R + (2.0 / config::Dt) * L)), B((2.0 / config::Dt) * L + (-1.0) * R),
-      L2((2.0 / config::Dt) * L), vprev(R.rows(), 0.0), iprev(R.rows(), 0.0), ih(R.rows(), 0.0) {}
+      L2((2.0 / config::Dt) * L), vprev(R.rows(), 0.0), iprev(R.rows(), 0.0), ih(R.rows(), 0.0) {
+    Matrix Gamma;
+    if (config::chatter == config::Chatter::RootMatch && rootMatch(R, L, config::Dt, Phi, Gamma)) {
+        A = Gamma;
+        root = true;
+    }
+}
 
 void RLBlock::stamp(Matrix& g, const std::vector<int>& from, const std::vector<int>& to) const {
     for (std::size_t i = 0; i < n; ++i)
@@ -248,14 +271,18 @@ void RLBlock::stamp(Matrix& g, const std::vector<int>& from, const std::vector<i
 }
 
 void RLBlock::history(Vector& h, const std::vector<int>& from, const std::vector<int>& to) {
-    Vector x(n);
-    if (config::euler) {
-        x = L2 * iprev;
+    if (root) {
+        ih = Phi * iprev;
     } else {
-        const Vector Bi = B * iprev;
-        for (std::size_t i = 0; i < n; ++i) x[i] = vprev[i] + Bi[i];
+        Vector x(n);
+        if (config::euler) {
+            x = L2 * iprev;
+        } else {
+            const Vector Bi = B * iprev;
+            for (std::size_t i = 0; i < n; ++i) x[i] = vprev[i] + Bi[i];
+        }
+        ih = A * x;
     }
-    ih = A * x;
     for (std::size_t i = 0; i < n; ++i) {
         h[from[i]] += ih[i];
         h[to[i]] -= ih[i];
@@ -473,6 +500,14 @@ TransformerCore::TransformerCore(int p, int q, int s, int t, double n, double R,
     A_ = 1.0 / (R + 2.0 * L / config::Dt);
     B_ = 2.0 * L / config::Dt - R;
     L2_ = 2.0 * L / config::Dt;
+    Matrix Rm(1, 1), Lm(1, 1), Phi, Gamma;
+    Rm(0, 0) = R;
+    Lm(0, 0) = L;
+    if (config::chatter == config::Chatter::RootMatch && L > 0.0 && rootMatch(Rm, Lm, config::Dt, Phi, Gamma)) {
+        phi_ = Phi(0, 0);
+        A_ = Gamma(0, 0);
+        root_ = true;
+    }
 }
 
 void TransformerCore::stamp(Matrix& g) const {
@@ -482,7 +517,7 @@ void TransformerCore::stamp(Matrix& g) const {
 
 void TransformerCore::history(double t, Vector& h) {
     (void)t;
-    ih_ = config::euler ? A_ * L2_ * i_ : A_ * (vprev_ + B_ * i_);
+    ih_ = root_ ? phi_ * i_ : config::euler ? A_ * L2_ * i_ : A_ * (vprev_ + B_ * i_);
     for (int j = 0; j < 4; ++j) h[j] += a_[j] * ih_;
 }
 

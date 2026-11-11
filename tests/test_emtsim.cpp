@@ -12,6 +12,7 @@
 
 #include "circuit.h"
 #include "config.h"
+#include "elements.h"
 #include "linalg.h"
 #include "netlist.h"
 #include "network.h"
@@ -376,7 +377,7 @@ void newElementTests() {
 std::unique_ptr<Network> runMain(const std::string& text) {
     Circuit ckt = parseNetlist(text, "test");   // sets config from .tran / .options
     const int steps = static_cast<int>(std::lround((config::stpTime - config::srtTime) / config::Dt));
-    if (!(config::chatter || config::interp)) return runNetwork(std::move(ckt), steps);
+    if (!(config::cda() || config::interp)) return runNetwork(std::move(ckt), steps);
     std::ostringstream sink;
     auto* old = std::cout.rdbuf(sink.rdbuf());
     auto net = std::make_unique<Network>(std::move(ckt.elements), ckt.userNodes);
@@ -450,6 +451,31 @@ void chatterTests() {
               peakAbs(i, k + 300));
         check(peakAbs(nodeTrace(*c, 3), k + 300) < 0.01, "chatter: none after the breaker opens (V)",
               peakAbs(nodeTrace(*c, 3), k + 300));
+    }
+    // Detection: a capacitor charged from a stiff source chatters with no switching; CDA alone cannot see it
+    {
+        const std::string rc = ".tran 0.0001 0.003\nV 0 1 10 0 0\nR 1 2 0.01\nC 2 0 100e-6 # C\n";
+        const auto c = runMain(".options chatter=cda\n" + rc), d = runMain(".options chatter=detect\n" + rc);
+        const auto ic = currentTrace(*c, "C"), id = currentTrace(*d, "C");
+        check(peakAbs(ic, 5) > 10.0, "detection: the capacitor current chatters with CDA alone (A)", peakAbs(ic, 5));
+        check(peakAbs(id, 5) < 0.05, "detection: caught within four steps (A after)", peakAbs(id, 5));
+    }
+    // Root matching: the exponential model of a series R-L branch
+    {
+        Matrix R(1, 1), L(1, 1), Phi, Gamma;
+        R(0, 0) = 2.0;
+        L(0, 0) = 1e-3;
+        rootMatch(R, L, 1e-4, Phi, Gamma);
+        const double x = 2.0 * 1e-4 / 1e-3;
+        check(std::fabs(Phi(0, 0) - std::exp(-x)) < 1e-14 && std::fabs(Gamma(0, 0) - (1 - std::exp(-x)) / 2.0) < 1e-14,
+              "root matching: Phi = exp(-R dt/L), Gamma = (1 - Phi)/R (matrix exponential)", std::fabs(Phi(0, 0) - std::exp(-x)));
+        const std::string rl = ".tran 0.0001 0.005\nV 0 1 10 0 0\nSW 1 2 closed 0.003\nRL 2 0 1 0.001 # LOAD\n";
+        const auto off = runMain(".options chatter=off interp=off\n" + rl), rm = runMain(".options chatter=rootmatch interp=off\n" + rl);
+        const auto voff = nodeTrace(*off, 2), vrm = nodeTrace(*rm, 2), irm = currentTrace(*rm, "LOAD");
+        check(peakAbs(voff, 31) > 150.0 && peakAbs(vrm, 31) < 1e-3, "root matching: no chatter after the switch opens (V)", peakAbs(vrm, 31));
+        double err = 0.0;
+        for (std::size_t k = 0; k < 29; ++k) err = std::max(err, std::fabs(irm[k] - 10.0 * (1.0 - std::exp(-rm->time()[k] / 1e-3))));
+        check(err < 0.1, "root matching: step response close to exact (A)", err);
     }
     config::chatter = config::defaultChatter;
     config::interp = config::defaultInterp;

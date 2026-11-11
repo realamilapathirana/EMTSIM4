@@ -14,8 +14,21 @@ void interpolateState(const Vector& x, const Vector& y, double al, Vector& out) 
 }
 
 std::vector<Step> stepsAfterSwitching() {
-    if (!config::chatter) return {};
+    if (!config::cda()) return {};
     return {{0.5, true}, {0.5, true}};
+}
+
+bool chatterDetected(const std::vector<Vector>& states, const Vector& peak) {
+    const Vector &s0 = states[0], &s1 = states[1], &s2 = states[2], &s3 = states[3];
+    for (std::size_t i = 0; i < s0.size(); ++i) {
+        const double d1 = s1[i] - s0[i], d2 = s2[i] - s1[i], d3 = s3[i] - s2[i];
+        const bool big = std::min({std::fabs(d1), std::fabs(d2), std::fabs(d3)}) > 1e-2 * peak[i] + 1e-9;
+        const bool flips = d1 * d2 < 0.0 && d2 * d3 < 0.0;
+        const bool even = std::fabs(d2 + d3) < 0.25 * std::max(std::fabs(d2), std::fabs(d3)) &&
+                          std::fabs(d1 + d2) < 0.25 * std::max(std::fabs(d1), std::fabs(d2));
+        if (big && flips && even) return true;
+    }
+    return false;
 }
 
 // After every step, the earliest switching inside it is found (Network::detect, from the elements'
@@ -46,7 +59,25 @@ void runWithEvents(Network& net, int maxIterations) {
             ++kRec;
         }
     };
-    auto accept = [&](double t) { recordTo(t); std::swap(P, S); tP = a = t; };
+    const bool detect = config::chatter == config::Chatter::Detect;
+    std::vector<Vector> recent;      // regular solutions for chatter detection
+    Vector peak(P.size());
+    for (std::size_t i = 0; i < P.size(); ++i) peak[i] = std::fabs(P[i]);
+    auto accept = [&](double t, bool regular = false) {
+        recordTo(t);
+        std::swap(P, S);
+        tP = a = t;
+        if (!detect) return;
+        if (!regular) { recent.clear(); return; }
+        recent.push_back(P);
+        if (recent.size() > 4) recent.erase(recent.begin());
+        for (std::size_t i = 0; i < P.size(); ++i) peak[i] = std::max(peak[i], std::fabs(P[i]));
+        if (recent.size() == 4 && chatterDetected(recent, peak)) {
+            const std::vector<Step> after = stepsAfterSwitching();
+            pending.assign(after.begin(), after.end());
+            recent.clear();
+        }
+    };
 
     while (kRec < nsteps) {
         const bool special = !pending.empty();
@@ -71,9 +102,9 @@ void runWithEvents(Network& net, int maxIterations) {
             if (a + eps < g && g < b - eps) {                                // off the grid: back onto it
                 S.swap(lerp(P, S, (g - a) / dt));
                 net.load(S);
-                accept(g);
+                accept(g, true);
             } else {
-                accept(std::fabs(g - b) <= eps ? g : b);
+                accept(std::fabs(g - b) <= eps ? g : b, true);
             }
             continue;
         }

@@ -180,6 +180,8 @@ struct RLBlock {
     RLBlock(const Matrix& R, const Matrix& L);
     std::size_t n = 0;
     Matrix A, B, L2;                  // A = (R + 2L/dt)^-1,  B = 2L/dt - R,  L2 = 2L/dt
+    Matrix Phi;                       // chatter=rootmatch: i = A v + Phi i_prev (A = Gamma), see rootMatch
+    bool root = false;
     Vector vprev, iprev, ih;
     void stamp(Matrix& g, const std::vector<int>& from, const std::vector<int>& to) const;
     void history(Vector& h, const std::vector<int>& from, const std::vector<int>& to);
@@ -225,6 +227,11 @@ private:
     Matrix G_;                        // 2C/dt
     Vector vprev_, iprev_, ih_;
 };
+
+// Exponential (root-matching) model of series R-L branches, di/dt = L^-1 (v - R i), with the voltage held
+// at its new value over the step (Watson & Arrillaga eq. 5.2): i(t) = Gamma v(t) + Phi i(t - dt).
+// For one branch Phi = exp(-R dt / L), Gamma = (1 - Phi) / R. False if L is singular.
+bool rootMatch(const Matrix& R, const Matrix& L, double dt, Matrix& Phi, Matrix& Gamma);
 
 // Symmetric components -> phase-domain self and mutual values for a 3x3 matrix
 Matrix sequenceMatrix(double X1, double X0);
@@ -280,6 +287,8 @@ public:
 private:
     double a_[4];
     double n_, A_, B_, L2_;           // A = 1/(R + 2L/dt),  B = 2L/dt - R,  L2 = 2L/dt
+    double phi_ = 0.0;                // chatter=rootmatch: i = A vb + phi i_prev
+    bool root_ = false;
     double vprev_ = 0.0, i_ = 0.0, ih_ = 0.0;
 };
 

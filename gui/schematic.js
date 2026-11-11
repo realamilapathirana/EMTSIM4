@@ -76,6 +76,9 @@
       { key: 'r', label: 'Series resistance (total)', unit: 'Ω', def: '1' },
       { key: 'l', label: 'Series inductance (total)', unit: 'H', def: '10m' },
       { key: 'c', label: 'Shunt capacitance (total, half at each end)', unit: 'F', def: '1u' }] },
+    RL: { label: 'Series R-L branch', prefix: 'Z', params: [
+      { key: 'r', label: 'Resistance', unit: 'Ω', def: '1' },
+      { key: 'l', label: 'Inductance', unit: 'H', def: '10m' }] },
     TL: { label: 'Line (travelling wave, Bergeron)', prefix: 'TL', params: [
       { key: 'zc', label: 'Surge impedance', unit: 'Ω', def: '400' },
       { key: 'tau', label: 'Travel time (at least one time step)', unit: 's', def: '1m' },
@@ -474,6 +477,9 @@
         if (c.type === 'PI') {
           const v = vals([['r', 'R'], ['l', 'L'], ['c', 'C']]);
           if (v) lines.push('PI ' + a + ' ' + b + '  ' + v.map(fmt).join(' ') + tag(null));
+        } else if (c.type === 'RL') {
+          const v = vals([['r', 'Resistance'], ['l', 'Inductance']]);
+          if (v) lines.push('RL ' + a + ' ' + b + '  ' + v.map(fmt).join(' ') + tag(null));
         } else if (c.type === 'TL') {
           const v = vals([['zc', 'Surge impedance'], ['tau', 'Travel time'], ['r', 'R', true]]);
           if (v) lines.push('TL ' + a + ' ' + b + '  ' + fmt(v[0]) + ' ' + fmt(v[1]) + ' ' + fmt(or(v[2], 0)) + tag(null));
@@ -544,9 +550,11 @@
       if (!(d > 0) || !(ts > d)) errors.push('Run settings: need 0 < time step < duration.');
       else header.push('.tran ' + fmt(d) + ' ' + fmt(ts), '');
     }
-    // switching interpolation and chatter removal are on unless switched off
-    const off = ['chatter', 'interp'].filter((k) => st[k] === 'off');
-    if (off.length) header.push('.options ' + off.map((k) => k + '=off').join(' '), '');
+    // chatter removal (cda unless another method is chosen) and switching interpolation (on unless off)
+    const runOpts = [];
+    if (st.chatter && st.chatter !== 'cda') runOpts.push('chatter=' + st.chatter);
+    if (st.interp === 'off') runOpts.push('interp=off');
+    if (runOpts.length) header.push('.options ' + runOpts.join(' '), '');
     const layout = '#@layout ' + JSON.stringify(serialize(model));
     const text = header.concat(lines, ['', layout]).join('\n') + '\n';
     return { text, lines, errors, warnings, phases, nodeCount: N, netlistNodes: phases * N, labels,

@@ -26,7 +26,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def run_python(netlist, repeat):
+def run_python(netlist, repeat, chatter=None, interp=None):
     import dataloader
     import emtcls
     import main
@@ -38,7 +38,7 @@ def run_python(netlist, repeat):
             importlib.reload(dataloader)                     # fresh element objects for every run
         with contextlib.redirect_stdout(io.StringIO()):
             t0 = time.perf_counter()
-            main.run(netlist)
+            main.run(netlist, chatter=chatter, interp=interp)
             best = min(best, time.perf_counter() - t0)
     net = nets[-1]
     import config
@@ -54,9 +54,9 @@ def find_cpp_exe():
     raise SystemExit("C++ simulator not found in build/. Build it first with build.bat or cmake.")
 
 
-def run_cpp(netlist, repeat):
+def run_cpp(netlist, repeat, flags=()):
     exe = find_cpp_exe()
-    cmd = [exe] + ([os.path.abspath(netlist)] if netlist else [])
+    cmd = [exe] + ([os.path.abspath(netlist)] if netlist else []) + list(flags)
     best = float("inf")
     for _ in range(repeat):
         out = subprocess.run(cmd, cwd=HERE, check=True, capture_output=True, text=True).stdout
@@ -78,11 +78,15 @@ def main():
     ap.add_argument("--repeat", type=int, default=3, help="runs per version; the fastest is reported (default 3)")
     ap.add_argument("--plot", action="store_true", help="plot both versions and their difference")
     ap.add_argument("--save", help="save the plot to this file instead of showing it")
+    ap.add_argument("--chatter", choices=("off", "cda", "detect", "rootmatch"), help="override the chatter removal method")
+    ap.add_argument("--interp", choices=("on", "off"), help="override switching interpolation")
     args = ap.parse_args()
 
     circuit = args.netlist or "built-in (dataloader.py / src/circuit.cpp)"
-    t_py, V_py, s_py, cn_py, I_py = run_python(args.netlist, args.repeat)
-    t_cpp, V_cpp, s_cpp, exe, cn_cpp, I_cpp = run_cpp(args.netlist, args.repeat)
+    interp = None if args.interp is None else args.interp == "on"
+    flags = (["--chatter=" + args.chatter] if args.chatter else []) + (["--interp=" + args.interp] if args.interp else [])
+    t_py, V_py, s_py, cn_py, I_py = run_python(args.netlist, args.repeat, args.chatter, interp)
+    t_cpp, V_cpp, s_cpp, exe, cn_cpp, I_cpp = run_cpp(args.netlist, args.repeat, flags)
     steps, n = V_py.shape
 
     print("Circuit: %s" % circuit)

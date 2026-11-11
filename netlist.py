@@ -23,7 +23,9 @@ parameters can be given as key=value.
     SM  a b c  S V f H xd2 ra E delta0 Pm [D=]       synchronous machine (classical)
     IM  a b c  S V f poles rs xls rr xlr xm H Tload [speed0=]   induction machine
     .tran dt tstop                                   time step and stop time (before the elements)
-    .options chatter=on|off interp=on|off            chatter removal / switching interpolation (default on)
+    RL  a b  R L                                     series R-L branch (root matching can apply to it)
+    .options chatter=off|cda|detect|rootmatch interp=on|off   chatter removal method / switching interpolation
+                                                     (default cda, on; before the elements; docs/switching.md)
 """
 import math
 import re
@@ -32,7 +34,7 @@ import re
 import config
 import elements as el
 
-TERMINALS = {"R": 2, "L": 2, "C": 2, "V": 2, "SW": 2, "F": 2, "PI": 2, "TL": 2, "LSAT": 2, "MOV": 2, "D": 2,
+TERMINALS = {"R": 2, "L": 2, "C": 2, "RL": 2, "V": 2, "SW": 2, "F": 2, "PI": 2, "TL": 2, "LSAT": 2, "MOV": 2, "D": 2,
              "THY": 2, "XF": 4, "RL3": 6, "PI3": 6, "TL3": 6, "XF3": 6, "V3": 3, "SM": 3, "IM": 3}
 
 
@@ -123,6 +125,8 @@ def _build(kind, name, n, args, kw, flags, b):
         t1 = a.req(1, "t_clear") if a.has(1) else None
         b.add(name, el.Fault(strnode=n[0], stpnode=n[1], Ron=a.kwor("ron", 0.01), Roff=a.kwor("roff", 1.0e6),
                              t_apply=a.req(0, "t_apply"), t_clear=t1))
+    elif kind == "RL":
+        b.add(name, el.CoupledRL([n[0]], [n[1]], [[a.req(0, "R")]], [[a.req(1, "L")]]), "RL")
     elif kind == "RL3":
         R1, L1 = a.req(0, "R1"), a.req(1, "L1")
         b.add(name, el.CoupledRL.from_sequence(n[0:3], n[3:6], R1, L1, a.opt(2, "r0", R1), a.opt(3, "l0", L1)), "RL3")
@@ -245,6 +249,15 @@ def parse_on_off(value):
     return True if v in ("on", "1", "true", "yes") else False if v in ("off", "0", "false", "no") else None
 
 
+def parse_chatter(value):
+    """off / cda / detect / rootmatch (on = cda), or None"""
+    v = value.lower()
+    on = parse_on_off(v)
+    if on is not None:
+        return "cda" if on else "off"
+    return v if v in config.CHATTER_METHODS else None
+
+
 def parse(text, where="netlist"):
     statements, max_node = [], 0
     # time step and stop time: defaults unless the netlist has a ".tran dt tstop" line
@@ -252,6 +265,8 @@ def parse(text, where="netlist"):
     config.euler = False
     config.stpTime = config.srtTime + config.defaultStop
     config.chatter, config.interp = config.defaultChatter, config.defaultInterp
+    for key, val in config.forced.items():
+        setattr(config, key, val)
     for lineno, raw in enumerate(text.splitlines(), 1):
         loc = "%s:%d" % (where, lineno)
         body, _, comment = raw.partition("#")
@@ -270,12 +285,16 @@ def parse(text, where="netlist"):
             config.stpTime = config.srtTime + stop
             continue
         if tok[0].upper() == ".OPTIONS":
+            if statements:
+                raise ValueError("%s: put .options before the elements" % loc)
             for kv in tok[1:]:
                 key, _, val = kv.partition("=")
-                on = parse_on_off(val)
-                if key.lower() not in ("chatter", "interp") or on is None:
-                    raise ValueError("%s: use .options chatter=on|off interp=on|off" % loc)
-                setattr(config, key.lower(), on)
+                key = key.lower()
+                v = parse_chatter(val) if key == "chatter" else parse_on_off(val) if key == "interp" else None
+                if v is None:
+                    raise ValueError("%s: use .options chatter=off|cda|detect|rootmatch interp=on|off" % loc)
+                if key not in config.forced:
+                    setattr(config, key, v)
             continue
         cw = comment.split()
         name = cw[0].rstrip(",;:") if cw else ""

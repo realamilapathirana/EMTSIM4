@@ -3,6 +3,8 @@ pieces of the method that are meant to be changed (interpolate, steps_after_swit
 See docs/switching.md. The same algorithm as src/switching.cpp."""
 import math
 
+import numpy as np
+
 import config
 
 
@@ -15,7 +17,19 @@ def steps_after_switching():
     """Chatter removal: the steps to take right after a switching, each (fraction of Dt, backward
     Euler?). Critical damping adjustment is two backward-Euler half steps. The elements support
     exactly (1.0, False) and (0.5, True), the two steps with equal conductances; see docs/switching.md."""
-    return [(0.5, True), (0.5, True)] if config.chatter else []
+    return [(0.5, True), (0.5, True)] if config.cda() else []
+
+
+def chatter_detected(states, peak):
+    """Chatter detection (chatter=detect): True if some quantity of the network state alternates from
+    step to step: its last three changes flip sign each time and are nearly equal in size, as chatter
+    around a smooth solution does. states: the last four solutions at the regular time step, oldest
+    first; peak: the largest magnitude seen so far of every quantity (to ignore round-off)."""
+    d1, d2, d3 = states[1] - states[0], states[2] - states[1], states[3] - states[2]
+    big = np.minimum(np.minimum(abs(d1), abs(d2)), abs(d3)) > 1e-2*peak + 1e-9
+    flips = (d1*d2 < 0) & (d2*d3 < 0)
+    even = (abs(d2 + d3) < 0.25*np.maximum(abs(d2), abs(d3))) & (abs(d1 + d2) < 0.25*np.maximum(abs(d1), abs(d2)))
+    return bool(np.any(big & flips & even))
 
 
 def run_with_events(net, max_iterations=50):
@@ -33,6 +47,8 @@ def run_with_events(net, max_iterations=50):
     S = None
     pending = []           # special steps still to take after a switching
     stall = 0
+    detect = config.chatter == "detect"
+    recent, peak = [], abs(P)   # regular solutions for chatter detection, and the largest values seen
 
     def record_to(tS):     # the grid points up to tS, from P and S
         nonlocal k_rec
@@ -49,10 +65,19 @@ def run_with_events(net, max_iterations=50):
                 net.load(S)
             k_rec += 1
 
-    def accept(t):
-        nonlocal P, tP, a
+    def accept(t, regular=False):
+        nonlocal P, tP, a, recent, peak, pending
         record_to(t)
         P, tP, a = S, t, t
+        if not detect:
+            return
+        if not regular:
+            recent = []
+            return
+        recent = (recent + [S])[-4:]
+        peak = np.maximum(peak, abs(S))
+        if len(recent) == 4 and chatter_detected(recent, peak):
+            pending, recent = list(steps_after_switching()), []
 
     while k_rec < nsteps:
         special = bool(pending)
@@ -80,9 +105,9 @@ def run_with_events(net, max_iterations=50):
             if a + eps < g < b - eps:                     # off the grid: back onto it
                 S = interpolate(P, S, (g - a)/dt)
                 net.load(S)
-                accept(g)
+                accept(g, regular=True)
             else:
-                accept(g if abs(g - b) <= eps else b)
+                accept(g if abs(g - b) <= eps else b, regular=True)
             continue
         te = a + best*h           # a switching inside the step
         if best < 1.0 - 1e-12:

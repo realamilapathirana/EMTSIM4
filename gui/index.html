@@ -256,6 +256,7 @@ const ICONS = {
   F3: '<path d="M22 1 V5"/><path d="M22 5 L17 9 L26 12 L18 16 L22 18" style="stroke:#D64545"/><path d="M22 18 V20 M14 20 H30 M17 23 H27"/>',
   GND: '<path d="M22 2 V12 M12 12 H32 M16 16 H28 M20 20 H24"/>',
   PI: '<path d="M2 12 H12 M32 12 H42"/><rect x="12" y="6" width="20" height="12"/><text x="22" y="16" text-anchor="middle" style="font:11px serif;fill:#1F2537;stroke:none">π</text>',
+  RL: '<path d="M2 12 H12 M32 12 H42"/><rect x="12" y="6" width="20" height="12"/><text x="22" y="16" text-anchor="middle" style="font:10px sans-serif;fill:#1F2537;stroke:none">Z</text>',
   TL: '<path d="M2 12 H12 M32 12 H42 M12 8 H32 M12 16 H32 M12 8 V16 M32 8 V16"/>',
   XF: '<path d="M2 12 H12 M32 12 H42"/><circle cx="18" cy="12" r="7"/><circle cx="26" cy="12" r="7"/>',
   MOV: '<path d="M2 12 H12 M32 12 H42"/><rect x="12" y="7" width="20" height="10"/><path d="M9 19 L35 5"/>',
@@ -268,7 +269,7 @@ const ICONS = {
 const TICKS_ICON = '<path d="M3 16 L7 8 M6 16 L10 8 M9 16 L13 8" style="stroke-width:1.1"/>';   // "///" = three-phase
 const LABELS = { R: 'Resistor', L: 'Inductor', C: 'Capacitor', V: 'Source', SW: 'Switch', F: 'Fault',
                  PI: 'Line π', TL: 'Line TL', XF: 'Transformer', MOV: 'Arrester', D: 'Diode', THY: 'Thyristor',
-                 RL3: 'Coupled RL', SM: 'Generator', IM: 'Motor' };
+                 RL: 'R-L branch', RL3: 'Coupled RL', SM: 'Generator', IM: 'Motor' };
 
 // The palette shows single-phase or three-phase components, depending on the drawing's mode
 function buildPalette() {
@@ -285,7 +286,7 @@ function buildPalette() {
                  { h: three ? 'Three-phase' : 'Basic' }]
     .concat(['R', 'L', 'C', 'V', 'SW', 'F'].map(tool1))
     .concat([{ h: 'Network' }], ['PI', 'TL', 'XF', 'MOV'].map(tool1))
-    .concat(three ? [own('RL3')] : [])
+    .concat(three ? [own('RL3')] : [own('RL')])
     .concat(three ? [{ h: 'Machines' }, own('SM'), own('IM')] : [{ h: 'Electronics' }, own('D'), own('THY')])
     .concat([{ h: '' }, { id: 'GND', label: 'Ground', icon: ICONS.GND }]);
   for (const t of items) {
@@ -383,9 +384,10 @@ function symbol(c) {
              '<text class="sy" x="40" y="5" text-anchor="middle">π</text>' + (c.type === 'PI3' ? TICKS : '');
     case 'TL': case 'TL3':
       return lead(0, 20) + lead(60, 80) + '<path d="M20 -6 H60 M20 6 H60 M20 -6 V6 M60 -6 V6"/>' + (c.type === 'TL3' ? TICKS : '');
-    case 'RL3':
+    case 'RL': case 'RL3':
       return lead(0, 20) + lead(60, 80) + '<rect x="20" y="-9" width="40" height="18" rx="1.5"/>' +
-             '<text class="sy" x="40" y="5" text-anchor="middle" style="font-family:sans-serif;font-size:12px">Z</text>' + TICKS;
+             '<text class="sy" x="40" y="5" text-anchor="middle" style="font-family:sans-serif;font-size:12px">Z</text>' +
+             (c.type === 'RL3' ? TICKS : '');
     case 'XF': case 'XF3':
       return lead(0, 23) + lead(57, 80) + '<circle cx="34" cy="0" r="11"/><circle cx="46" cy="0" r="11"/>' +
              (c.type === 'XF3' ? TICKS : '');
@@ -443,6 +445,7 @@ function valueText(c) {
     case 'D': return 'diode';
     case 'THY': return 'α ' + (P.alpha || '?') + '°';
     case 'PI3': return si(v('r1'), 'Ω') + ' · ' + si(v('l1'), 'H') + ' · ' + si(v('c1'), 'F');
+    case 'RL': return si(v('r'), 'Ω') + ' · ' + si(v('l'), 'H');
     case 'RL3': return si(v('r1'), 'Ω') + ' · ' + si(v('l1'), 'H');
     case 'TL3': return si(v('z1'), 'Ω') + ' · τ ' + si(v('tau1'), 's');
     case 'SM': return si(v('S'), 'VA') + ' · Pm ' + (P.Pm || '?') + ' pu';
@@ -464,7 +467,7 @@ function valueText(c) {
 }
 
 const HALF = { R: 8, L: 5, C: 13, V: 18, SW: 16, F: 11, R3: 8, L3: 5, C3: 13, V3: 18, SW3: 16,
-               PI: 9, PI3: 9, TL: 6, TL3: 6, RL3: 9, XF: 11, XF3: 11, MOV: 12, MOV3: 12, D: 10, THY: 14 };
+               PI: 9, PI3: 9, TL: 6, TL3: 6, RL: 9, RL3: 9, XF: 11, XF3: 11, MOV: 12, MOV3: 12, D: 10, THY: 14 };
 function compSVG(c, cls) {
   if (S.singleTerminal(c.type)) {   // ground and 3-phase fault: drawn at their terminal, pointing down
     const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -625,8 +628,11 @@ function renderProps() {
          field('set_tstop', 'Duration (blank = 0.1 s)', st.tstop || '', 's', 'value') +
          '<div class="field"><label><input type="checkbox" data-opt="interp"' + (st.interp === 'off' ? '' : ' checked') +
          '> Switch at the exact instant (interpolation)</label></div>' +
-         '<div class="field"><label><input type="checkbox" data-opt="chatter"' + (st.chatter === 'off' ? '' : ' checked') +
-         '> Chatter removal (critical damping adjustment)</label></div>';
+         '<div class="field"><label>Chatter removal <select data-optsel="chatter">' +
+         [['cda', 'after a switching (CDA)'], ['detect', 'after a switching, and wherever detected'],
+          ['rootmatch', 'root matching of R-L branches'], ['off', 'off']]
+           .map(([k, t]) => '<option value="' + k + '"' + ((st.chatter || 'cda') === k ? ' selected' : '') + '>' + t + '</option>').join('') +
+         '</select></label></div>';
     if (net) h += msgList(net);
     h += '<h3 style="margin-top:14px">How to draw</h3><ul class="help">' +
          '<li>Pick a component on the left and click to place it. Press <b>R</b> to rotate.</li>' +
@@ -642,6 +648,15 @@ function renderProps() {
          '<li><b>Save</b> writes circuits/&lt;name&gt;.net, which also runs with .\\run.bat circuits\\&lt;name&gt;.net</li></ul>';
     p.innerHTML = h;
     // run settings (stored in the drawing, written as .tran and .options lines)
+    p.querySelectorAll('select[data-optsel]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        pushUndo();
+        const st = Object.assign({}, model.settings);
+        if (sel.value === 'cda') delete st[sel.dataset.optsel]; else st[sel.dataset.optsel] = sel.value;
+        model.settings = st;
+        render();
+      });
+    });
     p.querySelectorAll('input[data-opt]').forEach((inp) => {
       inp.addEventListener('change', () => {
         pushUndo();
@@ -972,13 +987,20 @@ $('btnRun').onclick = run;
 
 // Hold run: the reference a later run is compared with (the grey dashed overlay)
 let held = null;
-function currentOptions() {       // chatter / interp states: the drawing's settings, or a raw netlist's .options line
-  const st = { chatter: 'on', interp: 'on' };
+function currentOptions() {       // chatter method / interp state: the drawing's settings, or a raw netlist's .options line
+  const st = { chatter: 'cda', interp: 'on' };
   if (raw == null) {
-    for (const k in st) if ((model.settings || {})[k] === 'off') st[k] = 'off';
+    const ms = model.settings || {};
+    if (ms.chatter) st.chatter = ms.chatter;
+    if (ms.interp === 'off') st.interp = 'off';
   } else {
+    const onoff = (v) => (/^(on|1|true|yes)$/i.test(v) ? 'on' : /^(off|0|false|no)$/i.test(v) ? 'off' : v.toLowerCase());
     for (const m of raw.matchAll(/^\s*\.options\s+(.*)$/gim))
-      for (const kv of m[1].split(/\s+/)) { const [k, v] = kv.split('='); if (k in st && v) st[k] = /^(on|1|true|yes)$/i.test(v) ? 'on' : 'off'; }
+      for (const kv of m[1].split(/\s+/)) {
+        const [k, v] = kv.split('=');
+        if (k === 'interp' && v) st.interp = onoff(v);
+        if (k === 'chatter' && v) st.chatter = { on: 'cda' }[onoff(v)] || onoff(v);
+      }
   }
   return st;
 }

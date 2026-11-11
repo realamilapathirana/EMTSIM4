@@ -21,7 +21,7 @@ constexpr double PI = 3.14159265358979323846;
 // Number of node terminals of each element type
 int terminalCount(const std::string& kind) {
     static const std::map<std::string, int> n = {
-        {"R", 2}, {"L", 2}, {"C", 2}, {"V", 2}, {"SW", 2}, {"F", 2}, {"PI", 2}, {"TL", 2}, {"LSAT", 2},
+        {"R", 2}, {"L", 2}, {"C", 2}, {"RL", 2}, {"V", 2}, {"SW", 2}, {"F", 2}, {"PI", 2}, {"TL", 2}, {"LSAT", 2},
         {"MOV", 2}, {"D", 2}, {"THY", 2}, {"XF", 4}, {"RL3", 6}, {"PI3", 6}, {"TL3", 6}, {"XF3", 6},
         {"V3", 3}, {"SM", 3}, {"IM", 3}};
     const auto it = n.find(kind);
@@ -136,6 +136,11 @@ void build(const Statement& s, Builder& b) {
         const double t0 = a.req(0, "t_apply");
         const std::optional<double> t1 = a.has(1) ? std::optional<double>(a.req(1, "t_clear")) : std::nullopt;
         b.add<Fault>(name, n[0], n[1], t0, t1, a.kwOr("ron", 0.01), a.kwOr("roff", 1.0e6));
+    } else if (k == "RL") {
+        Matrix Rm(1, 1), Lm(1, 1);
+        Rm(0, 0) = a.req(0, "R");
+        Lm(0, 0) = a.req(1, "L");
+        b.add<CoupledRL>(name, std::vector<int>{n[0]}, std::vector<int>{n[1]}, Rm, Lm).type = "RL";
     } else if (k == "RL3") {
         const double R1 = a.req(0, "R1"), L1 = a.req(1, "L1");
         auto& e = b.add<CoupledRL>(name, CoupledRL::fromSequence({n[0], n[1], n[2]}, {n[3], n[4], n[5]}, R1, L1,
@@ -287,8 +292,8 @@ Circuit parseNetlist(const std::string& text, const std::string& where) {
     config::Dt = config::step = config::defaultDt;
     config::euler = false;
     config::stpTime = config::srtTime + config::defaultStop;
-    config::chatter = config::defaultChatter;
-    config::interp = config::defaultInterp;
+    config::chatter = config::forcedChatter >= 0 ? static_cast<config::Chatter>(config::forcedChatter) : config::defaultChatter;
+    config::interp = config::forcedInterp >= 0 ? config::forcedInterp != 0 : config::defaultInterp;
     for (int lineno = 1; std::getline(in, raw); ++lineno) {
         Statement s;
         s.where = where + ":" + std::to_string(lineno);
@@ -307,13 +312,14 @@ Circuit parseNetlist(const std::string& text, const std::string& where) {
             continue;
         }
         if (upper(tok[0]) == ".OPTIONS") {
+            if (!stmts.empty()) throw std::runtime_error(s.where + ": put .options before the elements");
             for (std::size_t k = 1; k < tok.size(); ++k) {
                 const std::size_t eq = tok[k].find('=');
-                const std::string key = lower(tok[k].substr(0, eq));
-                const int on = eq == std::string::npos ? -1 : parseOnOff(tok[k].substr(eq + 1));
-                if ((key != "chatter" && key != "interp") || on < 0)
-                    throw std::runtime_error(s.where + ": use .options chatter=on|off interp=on|off");
-                (key == "chatter" ? config::chatter : config::interp) = on;
+                const std::string key = lower(tok[k].substr(0, eq)), val = eq == std::string::npos ? "" : tok[k].substr(eq + 1);
+                const int v = key == "chatter" ? parseChatter(val) : key == "interp" ? parseOnOff(val) : -1;
+                if (v < 0) throw std::runtime_error(s.where + ": use .options chatter=off|cda|detect|rootmatch interp=on|off");
+                if (key == "chatter" && config::forcedChatter < 0) config::chatter = static_cast<config::Chatter>(v);
+                if (key == "interp" && config::forcedInterp < 0) config::interp = v != 0;
             }
             continue;
         }
@@ -376,5 +382,15 @@ int parseOnOff(const std::string& value) {
     const std::string v = lower(value);
     if (v == "on" || v == "1" || v == "true" || v == "yes") return 1;
     if (v == "off" || v == "0" || v == "false" || v == "no") return 0;
+    return -1;
+}
+
+int parseChatter(const std::string& value) {
+    const int on = parseOnOff(value);
+    if (on >= 0) return static_cast<int>(on ? config::Chatter::CDA : config::Chatter::Off);
+    const std::string v = lower(value);
+    if (v == "cda") return static_cast<int>(config::Chatter::CDA);
+    if (v == "detect") return static_cast<int>(config::Chatter::Detect);
+    if (v == "rootmatch") return static_cast<int>(config::Chatter::RootMatch);
     return -1;
 }

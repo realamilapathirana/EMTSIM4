@@ -5,9 +5,11 @@ does not respect that grid, which causes two separate problems. Both are describ
 Arrillaga, *Power Systems Electromagnetic Transients Simulation*, section 9.4; this page says
 what EMTSim does about them and where the code is.
 
-Both methods are on by default. A circuit switches them off with `.options chatter=off interp=off`,
-a run with `--chatter=off --interp=off`, and the editor has a tick box for each under Run settings.
-Try them on `circuits/demo_chatter.net`, `demo_interpolation.net` and `demo_breaker.net`.
+Interpolation is on or off (`interp=on|off`). Chatter removal has four settings, described below:
+`chatter=off | cda | detect | rootmatch`, default `cda` (`on` means `cda`). A circuit chooses with
+an `.options` line before its elements, a run with `--chatter=... --interp=...` on the command line
+(`run.bat`, `emtsim.exe`, `python main.py`, `compare.py`), and the editor has both under Run
+settings. Try them on the five `circuits/demo_*.net` circuits.
 
 ## Problem 1: a switching falls between time points
 
@@ -85,6 +87,51 @@ the switching (and the chatter); chatter removal alone acts one step late. With 
 closing between time points acts at its instant to the accuracy of the trapezoidal rule itself
 (see `demo_interpolation.net`).
 
+### Method: CDA where chatter is detected (`chatter=detect`)
+
+CDA only acts where the program knows something switched. Chatter can also start without a
+switching: a stiff source charging a capacitor (`demo_detect.net`), or a saturable core changing
+segment (`transformer_inrush.net` chatters by ±7 kV on node 1 with plain CDA). With `detect`, after
+every regular step the last four solutions are examined; if any quantity of the state (a node
+voltage, a branch current, a flux, ...) changes sign from step to step three times running, with
+consecutive changes nearly equal in size (within 25 %) and larger than 1 % of its peak so far, the
+two backward-Euler half steps are taken there too. This is the slope check PSCAD/EMTDC uses (Watson
+& Arrillaga section 9.4.1). The threshold matters: at 0.1 % it fired on tiny alternations in
+`grid100.net` and the repeated half steps damped its real 1–2 kHz ringing by about 20 %; at 1 % it
+fires 3 times there, at start-up, and leaves the ringing alone.
+
+### Method: root matching (`chatter=rootmatch`)
+
+A different idea (Watson & Arrillaga chapter 5): instead of repairing the trapezoidal rule after the
+fact, give series R–L branches a difference equation that cannot chatter. The exact solution of
+L di/dt + R i = v, with v held at its new value over the step, is
+
+  *i*(*t*) = e^(−RΔt/L) *i*(*t*−Δt) + (1 − e^(−RΔt/L)) / *R* · *v*(*t*)
+
+(the book's equation 5.2). Its history term is the current alone, so after a switching the
+voltage settles at once, and the response to a step is exact at every time point, whatever Δt is.
+For coupled branches (R and L matrices) the same is done with a matrix exponential:
+Φ = exp(−L⁻¹RΔt) and Γ = ∫exp(−L⁻¹Rs)ds L⁻¹, i(t) = Γ v(t) + Φ i(t−Δt).
+
+Root matching applies to every series R–L branch: `RL`, `RL3`, the series branch of `PI`/`PI3`
+lines, source impedances, transformer leakage and machines. As in the book, separate `L` and `C`
+elements keep the trapezoidal rule (a lone inductance has no exponential to match), so a circuit
+drawn with a separate R and L is not helped; draw it with an `RL` branch (`demo_rootmatch.net`).
+
+The price: holding v over the step delays a sinusoid by about half a step. At 50 Hz and Δt =
+100 µs the current of an R–L branch is off by 1.6 % (0.49 A of 30 A, against 0.08 % with the
+trapezoidal rule). So root matching is the better choice for switching and step studies with a
+large time step, and the trapezoidal rule (with CDA) for steady-state accuracy.
+
+### Choosing
+
+| Method | Removes chatter | Cost | Use when |
+|---|---|---|---|
+| `off` | no | none | studying the trapezoidal rule itself (the Tiny book) |
+| `cda` (default) | after switchings | two half steps per switching | most studies |
+| `detect` | after switchings, and wherever it appears | a check of the state every step | non-linear cores, stiff sources, anything that chatters on its own |
+| `rootmatch` | in R–L branches, always | a ½-step lag on sinusoids | switching transients with a large time step, circuits built from R–L branches |
+
 ## Where the code is, and how to change it
 
 | Piece | Python | C++ |
@@ -92,6 +139,8 @@ closing between time points acts at its instant to the accuracy of the trapezoid
 | The time loop with both methods | `switching.py` → `run_with_events()` | `src/switching.cpp` → `runWithEvents()` |
 | **Interpolation method** (state between two solution points) | `switching.py` → `interpolate(x, y, al)` | `src/switching.cpp` → `interpolateState()` |
 | **Chatter removal method** (steps taken after a switching) | `switching.py` → `steps_after_switching()` | `src/switching.cpp` → `stepsAfterSwitching()` |
+| **Chatter detection** (`chatter=detect`) | `switching.py` → `chatter_detected(states, peak)` | `src/switching.cpp` → `chatterDetected()` |
+| **Root matching** (`chatter=rootmatch`) | `elements.py` → `root_match()`, used by `RLBlock`, `TransformerCore` | `src/elements.cpp` → `rootMatch()`, `expm()` in `src/linalg.cpp` |
 | Where each element switches within a step | `elements.py` → `event_alpha()` of `Switch`, `Diode` | `src/elements.cpp` → `eventAlpha()` |
 | Backward-Euler history currents | `elements.py`, where `config.euler` is read | `src/elements.cpp`, where `config::euler` is read |
 | Saving / loading / one step / earliest event | `emtcls.py` → `save`, `load`, `solve_step`, `detect` | `src/network.cpp` → `save`, `load`, `solveStep`, `detect` |
@@ -127,5 +176,7 @@ Both ports implement the same algorithm and are compared on every example circui
   time), the step is solved the plain way, letting `check()` settle them, and the loop goes on.
 - The book's one-step spike when a GTO opens between time points (its figure 9.5) does not occur
   in EMTSim even with interpolation off: a step is re-solved until the diodes agree with it.
-- Chatter started by a step change of a source (not a switching) is not treated; a smaller time
-  step or a snubber helps there.
+- With `cda`, chatter started by something other than a switching (a stiff source, a saturable
+  core) is not treated; use `detect`, or a smaller time step or a snubber.
+- Root matching changes how the elements are built, so `.options` must come before the elements
+  (the netlist reader says so if it does not).
