@@ -54,7 +54,10 @@ int main(int argc, char** argv) {
                   << "Sparse LDL: G_UU has " << EMTDC.nnzG_UU() << " non-zeros, L has " << EMTDC.nnzFactor()
                   << " below the diagonal, " << EMTDC.factorisations() << " factorisations";
         if (EMTDC.resolves()) std::cout << " (" << EMTDC.resolves() << " re-solves for non-linear elements)";
-        std::cout << "\n";
+        const SwitchedLDL& f = EMTDC.factor();
+        std::cout << ": " << f.full << " full, " << f.partial << " partial";
+        if (f.partial) std::cout << " (" << f.rowsRecomputed / f.partial << " of " << EMTDC.unknownNodes() << " rows each)";
+        std::cout << ", " << f.unchanged << " unchanged\n";
         if (unconverged)
             std::cout << "Warning: non-linear elements did not settle within " << MAX_ITERATIONS << " iterations in "
                       << unconverged << " steps\n";

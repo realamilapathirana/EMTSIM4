@@ -21,6 +21,7 @@
 
 #include "elements.h"
 #include "linalg.h"
+#include "switched_ldl.h"
 
 class Network {
 public:
@@ -62,6 +63,7 @@ public:
 
     int numNodes() const { return userNodes_; }        // recorded (user) nodes
     int totalNodes() const { return numNodes_; }       // including internal nodes
+    int unknownNodes() const { return unknownNodes_; } // rows of G_UU
     double nodeVoltage(int node) const;                // node number, 0 = ground
     const std::vector<double>& time() const { return time_; }
     const std::vector<Vector>& trace() const { return trace_; }
@@ -71,6 +73,7 @@ public:
     std::size_t nnzG_UU() const { return G_UU_.nnz(); }                 // non-zeros in G_UU
     std::size_t nnzFactor() const { return G_UU_LU_.nnzL(); }           // non-zeros in L (below the diagonal)
     int factorisations() const { return factorisations_; }
+    const SwitchedLDL& factor() const { return G_UU_LU_; }   // full / partial / unchanged counts
     int resolves() const { return resolves_; }
 
 private:
@@ -82,7 +85,7 @@ private:
     std::vector<int> idx_;    // node -> internal index (ground -> -1)
 
     SparseMatrix G_, G_UU_, G_UK_, G_KU_, G_KK_;
-    SparseLDL G_UU_LU_;
+    SwitchedLDL G_UU_LU_;   // switched nodes last, partial refactorisation (switched_ldl.h)
     int factorisations_ = 0, resolves_ = 0;
     Vector Vn_, V_U_, V_K_, I_H_, I_U_, I_K_, I_U_new_;
     std::vector<Vector> hist_;                  // history currents of each element

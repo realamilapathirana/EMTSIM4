@@ -363,7 +363,7 @@ The nodes are split into **unknown** nodes (U) and **known** nodes (K), whose vo
 
 $$\begin{bmatrix} G_{UU} & G_{UK} \\ G_{KU} & G_{KK} \end{bmatrix} \begin{bmatrix} v_U \\ v_K \end{bmatrix} = \begin{bmatrix} i_U \\ i_K \end{bmatrix} \quad\Rightarrow\quad G_{UU}\,v_U = i_U - G_{UK}\,v_K$$
 
-$G$ depends only on $\Delta t$ and the element values. So $G_{UU}$ is LU-factorised once, and every time step is just a forward and back substitution. When a fault or switch changes state, $G$ is rebuilt and factorised again.
+$G$ depends only on $\Delta t$ and the element values. So $G_{UU}$ is LU-factorised once, and every time step is just a forward and back substitution. When a fault or switch changes state, $G$ is rebuilt and factorised again, but only in part, as PSCAD/EMTDC does (Watson & Arrillaga section 9.3): the nodes of switching and non-linear elements are ordered last, the ordering and symbolic factorisation are kept while the sparsity pattern is unchanged, and only the rows of the factor from the first changed node on are recomputed ([`src/switched_ldl.cpp`](src/switched_ldl.cpp); in Python, for networks of 200 nodes or more, a Schur complement of the switched nodes, [`switched.py`](switched.py)). In the 1013-node network with about 40 switchings this makes a refactorisation about three times cheaper; the examples gain up to 1.4 times (`fault_clearing.net`, 2500 refactorisations).
 
 ### 3. The time loop
 
@@ -422,6 +422,7 @@ Three small circuits in [`circuits/`](circuits), from Watson & Arrillaga's chapt
 | [`src/network.h`](src/network.h), [`.cpp`](src/network.cpp) | [`emtcls.py`](emtcls.py) | `Network`: matrix assembly, partitioning and solution |
 | [`src/switching.h`](src/switching.h), [`.cpp`](src/switching.cpp) | [`switching.py`](switching.py) | Switching interpolation and chatter removal: the time loop, the interpolation and the steps after a switching ([docs/switching.md](docs/switching.md)) |
 | [`src/elements.h`](src/elements.h), [`.cpp`](src/elements.cpp) | [`elements.py`](elements.py) | Element models: `RLC`, `Source`, `Switch`, `Fault` |
+| [`src/switched_ldl.h`](src/switched_ldl.h), [`.cpp`](src/switched_ldl.cpp) | [`switched.py`](switched.py) | Factorisation of $G_{UU}$ with the switched nodes last, kept analysis and partial refactorisation |
 | [`src/config.h`](src/config.h) | [`config.py`](config.py) | Time step and simulation length |
 | [`src/circuit.h`](src/circuit.h) | | `Circuit` helper: `addR`, `addL`, `addC`, `addSource`, `addSwitch`, `addFault` |
 | [`src/linalg.h`](src/linalg.h), [`.cpp`](src/linalg.cpp) | (numpy / scipy) | `SparseMatrix`, minimum-degree ordering and `SparseLDL` (used by the solver); dense `Matrix` and `LUFactor` (used by the tests) |

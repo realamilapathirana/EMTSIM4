@@ -64,9 +64,19 @@ node tests\test_web.js                        # headless Edge/Chrome: static sit
 | `config.py` | `src/config.h` | Δt, run length, chatter/interp settings, the step being taken |
 | `dataloader.py` | `src/circuit.cpp` | Built-in circuit used when no netlist is given (kept in sync by hand) |
 
-The linear solve differs on purpose: Python uses dense `scipy.linalg.lu_factor`, while C++ uses
-the sparse LDLᵀ with minimum-degree ordering in `src/linalg.cpp`. `linalg` also has the dense
-`Matrix`, `LUFactor` and `expm` used by the elements and the tests.
+The linear solve differs on purpose and is not bit-identical between ports.
+- **C++:** `SwitchedLDL` (`src/switched_ldl.cpp`), a sparse LDLᵀ. It orders the nodes of
+  switching and non-linear elements last in a minimum-degree ordering. It keeps the ordering and
+  symbolic analysis while the pattern of G_UU is unchanged, and compares the new values with the
+  last ones to recompute L only from the first affected row.
+- **Python:** `SwitchedLU` (`switched.py`), dense. Below 200 non-switched nodes it uses one LU,
+  skipped when G_UU is unchanged. Above that it factorises the non-switched block once and
+  refactorises only the Schur complement of the switched nodes.
+- **Correctness of a partial refactorisation** comes from comparing G_UU with the last one, so the
+  set of "switched" nodes only affects speed. For example, `rootmatch` half steps change every
+  R–L entry and give a near-full refactorisation.
+- `linalg.cpp` keeps the plain `SparseLDL` (used by the tests), the dense `Matrix`, `LUFactor`
+  and `expm`.
 
 ### The solution step
 

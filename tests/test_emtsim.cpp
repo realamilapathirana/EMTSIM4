@@ -16,6 +16,7 @@
 #include "linalg.h"
 #include "netlist.h"
 #include "network.h"
+#include "switched_ldl.h"
 #include "switching.h"
 
 #include <algorithm>
@@ -651,6 +652,74 @@ int main() {
         bool threw = false;
         try { SparseLDL fac; fac.factor(S); } catch (const std::runtime_error&) { threw = true; }
         check(threw, "sparse LDL^T reports a singular matrix", 0.0);
+
+        // SwitchedLDL: switched nodes last, the analysis kept, partial refactorisation after a change
+        {
+            const std::size_t n = 400;
+            const SparseMatrix base = build(n, 11u);
+            std::vector<char> last(n, 0);
+            std::vector<std::pair<std::size_t, std::size_t>> sw;   // "switches" between switched nodes
+            for (std::size_t i = 0; i + 40 < n; i += 37) { sw.push_back({i, i + 40}); last[i] = last[i + 40] = 1; }
+            auto with = [&](double gsw, std::size_t extra) {    // base + switches (+ a branch at node `extra`)
+                SparseMatrix A(n, n);
+                for (std::size_t col = 0; col < n; ++col)
+                    for (std::size_t p = base.colptr()[col]; p < base.colptr()[col + 1]; ++p) A.add(base.rowind()[p], col, base.val()[p]);
+                for (std::size_t k = 0; k < sw.size(); ++k) {
+                    const double g = k == 3 ? gsw : 1.0;
+                    const auto [a, c] = sw[k];
+                    A.add(a, a, g); A.add(c, c, g); A.add(a, c, -g); A.add(c, a, -g);
+                }
+                if (extra < n) A.add(extra, extra, 0.25);
+                A.finalize();
+                return A;
+            };
+            Vector b(n);
+            for (std::size_t i = 0; i < n; ++i) b[i] = std::cos(0.3 * double(i));
+            auto diff = [&](const SwitchedLDL& fac, const SparseMatrix& A) {
+                SparseLDL ref; ref.factor(A);
+                const Vector x = fac.solve(b), y = ref.solve(b);
+                double num = 0.0, den = 0.0;
+                for (std::size_t i = 0; i < n; ++i) { num = std::max(num, std::fabs(x[i] - y[i])); den = std::max(den, std::fabs(y[i])); }
+                return num / den;
+            };
+            SwitchedLDL sf;
+            sf.setLast(last);
+            const SparseMatrix on = with(1e2, n), off = with(1e-6, n);
+            sf.factor(on);
+            sf.factor(off);                     // a switch opens: values change, pattern does not
+            check(sf.full == 1 && sf.partial == 1 && diff(sf, off) < 1e-9,
+                  "switched LDL: a switching refactorises in part, same answer as a full factorisation", diff(sf, off));
+            check(sf.rowsRecomputed < n / 4, "switched LDL: with the switched nodes last, few rows are recomputed (rows)",
+                  double(sf.rowsRecomputed));
+            sf.factor(off);
+            check(sf.unchanged == 1, "switched LDL: nothing is redone when nothing changed", double(sf.unchanged));
+            std::size_t plain = 0;
+            for (; plain < n && last[plain]; ++plain) {}
+            const SparseMatrix other = [&] {   // a change at a node that is not switched: still exact
+                SparseMatrix A(n, n);
+                for (std::size_t col = 0; col < n; ++col)
+                    for (std::size_t p = off.colptr()[col]; p < off.colptr()[col + 1]; ++p)
+                        A.add(off.rowind()[p], col, off.val()[p] * (off.rowind()[p] == plain + 1 && col == plain + 1 ? 2.0 : 1.0));
+                A.finalize();
+                return A;
+            }();
+            sf.factor(other);
+            check(sf.partial == 2 && diff(sf, other) < 1e-9, "switched LDL: any changed entry is found and refactorised exactly",
+                  diff(sf, other));
+            SwitchedLDL g;
+            g.setLast(last);
+            const SparseMatrix extra = [&] {
+                SparseMatrix A(n, n);
+                for (std::size_t col = 0; col < n; ++col)
+                    for (std::size_t p = on.colptr()[col]; p < on.colptr()[col + 1]; ++p) A.add(on.rowind()[p], col, on.val()[p]);
+                A.add(0, n - 1, -1e-3); A.add(n - 1, 0, -1e-3); A.add(0, 0, 1e-3); A.add(n - 1, n - 1, 1e-3);
+                A.finalize();
+                return A;
+            }();
+            g.factor(on);
+            g.factor(extra);
+            check(g.full == 2 && diff(g, extra) < 1e-9, "switched LDL: a new non-zero is analysed again (full)", diff(g, extra));
+        }
     }
 
     try {

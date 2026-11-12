@@ -15,7 +15,7 @@ import sys
 GUI = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(GUI)
 OUT = os.path.join(GUI, "wasm")
-SOURCES = ["linalg", "elements", "network", "netlist", "switching", "simulation", "wasm_api"]
+SOURCES = ["linalg", "elements", "network", "netlist", "switching", "simulation", "switched_ldl", "wasm_api"]
 FLAGS = ["-std=c++17", "-O3", "-fwasm-exceptions",
          "-sMODULARIZE=1", "-sEXPORT_NAME=createEmtsim", "-sENVIRONMENT=web,worker,node",
          "-sALLOW_MEMORY_GROWTH=1", "-sSTACK_SIZE=1048576",

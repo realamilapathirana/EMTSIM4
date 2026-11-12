@@ -55,6 +55,12 @@ Network::Network(std::vector<std::unique_ptr<Element>> elements, int userNodes) 
     }
     Vn_.assign(numNodes_, 0.0);
     I_H_.assign(numNodes_, 0.0);
+    std::vector<char> switched(unknownNodes_, 0);   // nodes of switching and non-linear elements: ordered last
+    for (const auto& e : comp_list_)
+        if (e->nonlinear() || e->hasEvents())
+            for (int i : e->idx)
+                if (i >= 0 && i < unknownNodes_) switched[i] = 1;
+    G_UU_LU_.setLast(std::move(switched));
 
     std::cout << "No of ideal sources " << src_count_ << "\n";
     std::cout << "No of unknown nodes " << unknownNodes_ << "\n\n";

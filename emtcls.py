@@ -15,7 +15,7 @@ import config
 import elements as el
 import dataloader as dl
 import matplotlib.pyplot as plt
-import scipy.linalg as la
+from switched import SwitchedLU
 
 
 class Network:
@@ -67,6 +67,10 @@ class Network:
         self.events = [obj for obj in self.comp_list if obj.has_events]     # switches, faults, diodes, thyristors
         self.has_valves = any(obj.valve for obj in self.comp_list)
         self.unconverged = 0
+        # G_UU is factorised with the nodes of switching and non-linear elements last
+        switched = {i for obj in self.comp_list if obj.nonlinear or obj.has_events
+                    for i in obj.idx if 0 <= i < self.unknownNodes}
+        self.lu = SwitchedLU(self.unknownNodes, switched)
 
         self.G = np.zeros((self.totalNodes, self.totalNodes))
         self.Vn = np.zeros((self.totalNodes, 1))
@@ -110,8 +114,7 @@ class Network:
         self.G_KK = self.G[u:n, u:n]
 
     def LU(self):
-        # Keep the full factorisation (L, U and the pivots) for lu_solve
-        self.G_UU_LU = la.lu_factor(self.G_UU)
+        self.lu.factor(self.G_UU)       # in full, only the switched nodes, or not at all (switched.py)
         self.factorisations += 1
 
     def Vdivide(self):
@@ -144,7 +147,7 @@ class Network:
         self.I_U_new = self.I_U - np.matmul(self.G_UK, self.V_K)
 
     def calcnewV(self):
-        self.V_U = la.lu_solve(self.G_UU_LU, self.I_U_new)
+        self.V_U = self.lu.solve(self.I_U_new)
 
     def reconstruct_V(self):
         self.Vn = np.concatenate([self.V_U, self.V_K])
